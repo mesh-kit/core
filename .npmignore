@@ -1,0 +1,8 @@
+node_modules
+src
+docker-compose.yml
+bun.lock
+vitest.config.ts
+todo.md
+next.md
+examples
