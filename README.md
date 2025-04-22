@@ -1,5 +1,7 @@
 # mesh
 
-Mesh is a command-based WebSocket framework for real-time applications. It uses Redis to coordinate connections, rooms, presence, and shared state across application instances, with built-in support for structured commands, latency tracking, and automatic reconnection.
+A lightweight, command-based WebSocket framework for real-time applications.
 
-Read the documentation at [docs.mesh-kit.dev](https://docs.mesh-kit.dev).
+Mesh coordinates connections, rooms, presence, and shared state across distributed instances using Redis — with built-in support for structured commands, presence tracking, versioned data sync, and automatic reconnection.
+
+→ [docs.mesh-kit.dev](https://docs.mesh-kit.dev)
