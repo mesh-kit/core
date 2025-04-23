@@ -6,8 +6,8 @@ The `createDedupedPresenceHandler` utility helps you group those events into a s
 
 This is useful for:
 
-- Showing a clean “who’s online” list
-- Displaying a single “typing...” indicator per user
+- Showing a clean "who's online" list
+- Displaying a single "typing..." indicator per user
 - Tracking presence by user, session, device, or any custom identifier
 
 ### Usage
@@ -54,11 +54,24 @@ Each `group` looks like this:
 }
 ```
 
-You can group by basically anything in `getGroupId` — connection metadata, session cookies, localStorage — it’s up to you. In the example above, we’re grouping by `userId` if present, or falling back to `connectionId` so that all connections are still shown individually when needed.
+You can group by basically anything in `getGroupId` — connection metadata, session cookies, localStorage — it's up to you. In the example above, we're grouping by `userId` if present, or falling back to `connectionId` so that all connections are still shown individually when needed.
+
+### Smart handling of presence updates
+
+The handler is designed to work with both:
+- Individual presence updates (join/leave/state events)
+- The initial presence list returned from `subscribePresence`
+
+It automatically:
+- Adds new connections to their appropriate groups
+- Removes connections when they leave
+- Selects a new representative if the current one leaves
+- Removes groups when all their connections leave
+- Reconciles the current state with the server state when reconnecting
 
 ### Rendering to the DOM
 
-Here’s a simple example that displays deduplicated users in the UI:
+Here's a simple example that displays deduplicated users in the UI:
 
 ```ts
 function renderPresenceList(users) {
@@ -77,7 +90,7 @@ function renderPresenceList(users) {
 
 Shows something like:
 
-```ts
+```
 Alice: typing (tabs: 2)
 conn-m9sdkxww000007079ff77: idle (tabs: 1)
 ```
