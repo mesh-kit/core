@@ -1,144 +1,106 @@
-import type { PresenceUpdate } from "../client/client";
-
-type DedupedPresenceGroup = {
-  representative: string;
-  state: any | null;
-  timestamp: number | null;
+export interface Group<TState> {
   members: Set<string>;
-};
-
-export interface CreateDedupedPresenceHandlerOptions {
-  getGroupId: (connectionId: string) => Promise<string | null>;
-  onUpdate: (groups: Map<string, DedupedPresenceGroup>) => void;
+  state: TState | null;
 }
 
-export function createDedupedPresenceHandler(
-  options: CreateDedupedPresenceHandlerOptions
-) {
-  const { getGroupId, onUpdate } = options;
+export function createDedupedPresenceHandler<TState>(config: {
+  getGroupIdFromState: (state: TState | null | undefined) => string | undefined;
+  onUpdate: (groups: Map<string, Group<TState>>) => void;
+}) {
+  const groups = new Map<string, Group<TState>>();
+  const memberToGroup = new Map<string, string>();
 
-  const groupMap = new Map<string, DedupedPresenceGroup>();
-  const connectionToGroup = new Map<string, string>();
+  const update = () => config.onUpdate(new Map(groups));
 
-  const processConnection = async (connectionId: string) => {
-    let groupId = connectionToGroup.get(connectionId);
-    if (!groupId) {
-      groupId = (await getGroupId(connectionId)) ?? `conn:${connectionId}`;
-      connectionToGroup.set(connectionId, groupId);
-    }
-
-    let group = groupMap.get(groupId);
-    if (!group) {
-      group = {
-        representative: connectionId,
-        state: null,
-        timestamp: null,
-        members: new Set(),
-      };
-      groupMap.set(groupId, group);
-    }
+  function join(connectionId: string) {
+    const groupId = `__pending__:${connectionId}`;
+    const group = groups.get(groupId) ?? {
+      members: new Set(),
+      state: null,
+    };
     group.members.add(connectionId);
+    groups.set(groupId, group);
+    memberToGroup.set(connectionId, groupId);
+    update();
+  }
 
-    return { groupId, group };
-  };
+  function leave(connectionId: string) {
+    const groupId = memberToGroup.get(connectionId);
+    if (!groupId) return;
 
-  const handler = async (update: PresenceUpdate) => {
-    const { connectionId, type, timestamp = Date.now() } = update;
+    const group = groups.get(groupId);
+    group?.members.delete(connectionId);
+    memberToGroup.delete(connectionId);
 
-    let groupId = connectionToGroup.get(connectionId);
-    if (!groupId) {
-      groupId = (await getGroupId(connectionId)) ?? `conn:${connectionId}`;
-      connectionToGroup.set(connectionId, groupId);
+    if (group && group.members.size === 0) {
+      groups.delete(groupId);
     }
 
-    let group = groupMap.get(groupId);
+    update();
+  }
 
-    if (type === "join") {
-      if (!group) {
-        group = {
-          representative: connectionId,
-          state: null,
-          timestamp: null,
-          members: new Set(),
-        };
-        groupMap.set(groupId, group);
-      }
-      group.members.add(connectionId);
-    }
+  function updateState(connectionId: string, state: TState | null) {
+    const newGroupId =
+      config.getGroupIdFromState(state) ?? `__ungrouped__:${connectionId}`;
+    const oldGroupId = memberToGroup.get(connectionId);
 
-    if (type === "leave" && group) {
-      group.members.delete(connectionId);
-      connectionToGroup.delete(connectionId);
-
-      if (group.members.size === 0) {
-        groupMap.delete(groupId);
-      } else if (group.representative === connectionId) {
-        group.representative = group.members.values().next().value!;
-      }
-    }
-
-    if (type === "state" && group) {
-      const { state } = update;
-      if (!group.timestamp || timestamp >= group.timestamp) {
+    if (oldGroupId === newGroupId) {
+      const group = groups.get(newGroupId);
+      if (group) {
         group.state = state;
-        group.timestamp = timestamp;
-        group.representative = connectionId;
+        update();
+      }
+      return;
+    }
+
+    if (oldGroupId) {
+      const oldGroup = groups.get(oldGroupId);
+      oldGroup?.members.delete(connectionId);
+      if (oldGroup && oldGroup.members.size === 0) {
+        groups.delete(oldGroupId);
       }
     }
 
-    onUpdate(groupMap);
+    const newGroup = groups.get(newGroupId) ?? {
+      members: new Set(),
+      state,
+    };
+    newGroup.members.add(connectionId);
+    newGroup.state = state;
+    groups.set(newGroupId, newGroup);
+    memberToGroup.set(connectionId, newGroupId);
+
+    update();
+  }
+
+  // Create handler function with .init method attached
+  const handler = ((update: {
+    type: "join" | "leave" | "state";
+    connectionId: string;
+    state?: TState | null;
+  }) => {
+    if (update.type === "join") join(update.connectionId);
+    else if (update.type === "leave") leave(update.connectionId);
+    else if (update.type === "state")
+      updateState(update.connectionId, update.state ?? null);
+  }) as ((update: {
+    type: "join" | "leave" | "state";
+    connectionId: string;
+    state?: TState | null;
+  }) => void) & {
+    init: (
+      present: string[],
+      states: Record<string, TState | null | undefined>
+    ) => void;
   };
 
-  return async (update: any) => {
-    if (
-      update.type === "join" ||
-      update.type === "leave" ||
-      update.type === "state"
-    ) {
-      return handler(update);
+  handler.init = (present, states) => {
+    for (const connectionId of present) {
+      join(connectionId);
+      const stateValue = states?.[connectionId] ?? null;
+      updateState(connectionId, stateValue);
     }
-
-    // if we get here, check if it's the result of a subscribePresence call
-    // which contains the initial list of present connections
-    if (update.success === true && Array.isArray(update.present)) {
-      // which connections are still present?
-      const stillPresent = new Set(update.present);
-
-      // remove any that are no longer present
-      for (const connectionId of connectionToGroup.keys()) {
-        if (!stillPresent.has(connectionId)) {
-          const groupId = connectionToGroup.get(connectionId);
-          if (groupId) {
-            const group = groupMap.get(groupId);
-            if (group) {
-              group.members.delete(connectionId);
-
-              // last member? remove group
-              if (group.members.size === 0) {
-                groupMap.delete(groupId);
-              } else if (group.representative === connectionId) {
-                // if this was the representative, assign a new one
-                group.representative = group.members.values().next().value!;
-              }
-            }
-          }
-          connectionToGroup.delete(connectionId);
-        }
-      }
-
-      // new connections
-      const newConnections = update.present.filter(
-        (connectionId: string) => !connectionToGroup.has(connectionId)
-      );
-
-      for (const connectionId of newConnections) {
-        await processConnection(connectionId);
-      }
-
-      onUpdate(groupMap);
-    }
-
-    // return the original update so it can be used by the caller
-    return update;
   };
+
+  return handler;
 }

@@ -1,373 +1,179 @@
 import { describe, test, expect, vi } from "vitest";
-import { createDedupedPresenceHandler } from "../client-utils";
-import type { PresenceUpdate } from "../client/client";
+import { createDedupedPresenceHandler, type Group } from "../client-utils";
 
-describe("createDedupedPresenceHandler", () => {
-  test("adds a new group when a connection joins and is resolved to a new groupId", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(
-        async (connectionId) => `group:${connectionId.substring(0, 3)}`
-      );
+type State = { userId: string; status?: string };
 
+describe("createDedupedPresenceHandler (state-based)", () => {
+  test("adds a new group when a connection joins and state is resolved", () => {
     const onUpdate = vi.fn();
 
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
       onUpdate,
     });
 
-    const update: PresenceUpdate = {
-      type: "join",
+    handler({ type: "join", connectionId: "conn123" });
+    handler({
+      type: "state",
       connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
-    };
+      state: { userId: "user1" },
+    });
 
-    await handler(update);
+    expect(onUpdate).toHaveBeenCalledTimes(2);
 
-    expect(getGroupId).toHaveBeenCalledWith("conn123");
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
+    const groupMap = onUpdate.mock.calls[1]![0] as Map<string, Group<State>>;
     expect(groupMap.size).toBe(1);
-    expect(groupMap.has("group:con")).toBe(true);
+    expect(groupMap.has("user1")).toBe(true);
 
-    const group = groupMap.get("group:con");
-    expect(group.representative).toBe("conn123");
-    expect(group.members.size).toBe(1);
+    const group = groupMap.get("user1")!;
     expect(group.members.has("conn123")).toBe(true);
+    expect(group.state).toEqual({ userId: "user1" });
   });
 
-  test("adds the connection to an existing group if another connection already resolved to the same groupId", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:same");
-
+  test("adds multiple members to the same group", () => {
     const onUpdate = vi.fn();
 
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
       onUpdate,
     });
 
-    // first connection joins
-    await handler({
-      type: "join",
+    handler({ type: "join", connectionId: "conn123" });
+    handler({
+      type: "state",
       connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
+      state: { userId: "user1" },
     });
 
-    onUpdate.mockClear();
-
-    // second connection joins with same group ID
-    await handler({
-      type: "join",
+    handler({ type: "join", connectionId: "conn456" });
+    handler({
+      type: "state",
       connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1001,
+      state: { userId: "user1" },
     });
 
-    expect(getGroupId).toHaveBeenCalledWith("conn456");
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    expect(groupMap.size).toBe(1);
-
-    const group = groupMap.get("group:same");
-    // first connection remains the representative
-    expect(group.representative).toBe("conn123");
-    expect(group.members.size).toBe(2);
-    expect(group.members.has("conn123")).toBe(true);
-    expect(group.members.has("conn456")).toBe(true);
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
+    expect(groupMap.get("user1")!.members.size).toBe(2);
   });
 
-  test("removes the group when the last connection in that group leaves", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:test");
-
+  test("removes the group when the last connection leaves", () => {
     const onUpdate = vi.fn();
 
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
       onUpdate,
     });
 
-    // connection joins
-    await handler({
-      type: "join",
+    handler({ type: "join", connectionId: "conn123" });
+    handler({
+      type: "state",
       connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
+      state: { userId: "user1" },
     });
+    handler({ type: "leave", connectionId: "conn123" });
 
-    onUpdate.mockClear();
-
-    // connection leaves
-    await handler({
-      type: "leave",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1001,
-    });
-
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    // group should be removed
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
     expect(groupMap.size).toBe(0);
   });
 
-  test("promotes a new representative when the current representative leaves", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:test");
-
+  test("moves a connection to a different group if its state changes", () => {
     const onUpdate = vi.fn();
 
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
       onUpdate,
     });
 
-    // first connection joins (becomes representative)
-    await handler({
-      type: "join",
+    handler({ type: "join", connectionId: "conn123" });
+    handler({
+      type: "state",
       connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
+      state: { userId: "user1" },
     });
-
-    // second connection joins
-    await handler({
-      type: "join",
-      connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1001,
-    });
-
-    onUpdate.mockClear();
-
-    // representative leaves
-    await handler({
-      type: "leave",
+    handler({
+      type: "state",
       connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1002,
+      state: { userId: "user2" },
     });
 
-    expect(onUpdate).toHaveBeenCalledTimes(1);
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
+    expect(groupMap.has("user1")).toBe(false);
+    expect(groupMap.has("user2")).toBe(true);
+  });
 
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
+  test("init loads present users and assigns state", () => {
+    const onUpdate = vi.fn();
+
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
+      onUpdate,
+    });
+
+    handler.init(["conn123", "conn456"], {
+      conn123: { userId: "user1" },
+      conn456: { userId: "user1" },
+    });
+
+    expect(onUpdate).toHaveBeenCalledTimes(4);
+
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
+    expect(groupMap.size).toBe(1);
+    expect(groupMap.get("user1")!.members.size).toBe(2);
+  });
+
+  test("handles null state gracefully", () => {
+    const onUpdate = vi.fn();
+
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
+      onUpdate,
+    });
+
+    handler({ type: "join", connectionId: "conn123" });
+    handler({ type: "state", connectionId: "conn123", state: null });
+
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
     expect(groupMap.size).toBe(1);
 
-    const group = groupMap.get("group:test");
-    // second connection should be promoted
-    expect(group.representative).toBe("conn456");
-    expect(group.members.size).toBe(1);
-    expect(group.members.has("conn456")).toBe(true);
+    const [groupId] = groupMap.keys();
+    expect(groupId!.startsWith("__ungrouped__")).toBe(true);
   });
 
-  test("updates state when a state update is received", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:test");
-
+  test("handles multiple groups cleanly", () => {
     const onUpdate = vi.fn();
 
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
+    const handler = createDedupedPresenceHandler<State>({
+      getGroupIdFromState: (state) => state?.userId,
       onUpdate,
     });
 
-    // connection joins
-    await handler({
-      type: "join",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
-    });
+    handler({ type: "join", connectionId: "a" });
+    handler({ type: "state", connectionId: "a", state: { userId: "user:a" } });
 
-    onUpdate.mockClear();
+    handler({ type: "join", connectionId: "b" });
+    handler({ type: "state", connectionId: "b", state: { userId: "user:b" } });
 
-    // connection updates state
-    await handler({
-      type: "state",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1001,
-      state: { status: "typing" },
-    });
-
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    const group = groupMap.get("group:test");
-    expect(group.state).toEqual({ status: "typing" });
-    expect(group.timestamp).toBe(1001);
-  });
-
-  test("only updates state if timestamp is newer", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:test");
-
-    const onUpdate = vi.fn();
-
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
-      onUpdate,
-    });
-
-    // two connections join the same group
-    await handler({
-      type: "join",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
-    });
-
-    await handler({
-      type: "join",
-      connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1001,
-    });
-
-    // first connection sets state
-    await handler({
-      type: "state",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1002,
-      state: { status: "typing" },
-    });
-
-    onUpdate.mockClear();
-
-    // second connection tries to set state with older timestamp
-    await handler({
-      type: "state",
-      connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1001,
-      state: { status: "idle" },
-    });
-
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    const group = groupMap.get("group:test");
-    // should keep the first state
-    expect(group.state).toEqual({ status: "typing" });
-    expect(group.timestamp).toBe(1002);
-    // representative should not change
-    expect(group.representative).toBe("conn123");
-  });
-
-  test("changes representative when state is updated with newer timestamp", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(async (connectionId) => "group:test");
-
-    const onUpdate = vi.fn();
-
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
-      onUpdate,
-    });
-
-    // two connections join the same group
-    await handler({
-      type: "join",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1000,
-    });
-
-    await handler({
-      type: "join",
-      connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1001,
-    });
-
-    // first connection sets state
-    await handler({
-      type: "state",
-      connectionId: "conn123",
-      roomName: "test-room",
-      timestamp: 1002,
-      state: { status: "typing" },
-    });
-
-    onUpdate.mockClear();
-
-    // second connection sets state with newer timestamp
-    await handler({
-      type: "state",
-      connectionId: "conn456",
-      roomName: "test-room",
-      timestamp: 1003,
-      state: { status: "idle" },
-    });
-
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    expect(onUpdate).toHaveBeenCalled();
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    const group = groupMap.get("group:test");
-    // should update to new state
-    expect(group.state).toEqual({ status: "idle" });
-    expect(group.timestamp).toBe(1003);
-    // representative should change
-    expect(group.representative).toBe("conn456");
-  });
-
-  test("automatically processes initial presence list from subscribePresence result", async () => {
-    const getGroupId = vi
-      .fn()
-      .mockImplementation(
-        async (connectionId) => `group:${connectionId.substring(0, 3)}`
-      );
-
-    const onUpdate = vi.fn();
-
-    const handler = createDedupedPresenceHandler({
-      getGroupId,
-      onUpdate,
-    });
-
-    const subscribeResult = {
-      success: true,
-      present: ["conn123", "conn456", "conn789"],
-    };
-
-    await handler(subscribeResult as any);
-
-    expect(getGroupId).toHaveBeenCalledTimes(3);
-    expect(getGroupId).toHaveBeenCalledWith("conn123");
-    expect(getGroupId).toHaveBeenCalledWith("conn456");
-    expect(getGroupId).toHaveBeenCalledWith("conn789");
-
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-
-    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
-    expect(groupMap.size).toBe(1);
-    expect(groupMap.has("group:con")).toBe(true);
-
-    const group = groupMap.get("group:con");
-    expect(group.members.size).toBe(3);
-    expect(group.members.has("conn123")).toBe(true);
-    expect(group.members.has("conn456")).toBe(true);
-    expect(group.members.has("conn789")).toBe(true);
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
+      string,
+      Group<State>
+    >;
+    expect(groupMap.size).toBe(2);
+    expect(groupMap.get("user:a")!.members.has("a")).toBe(true);
+    expect(groupMap.get("user:b")!.members.has("b")).toBe(true);
   });
 });
