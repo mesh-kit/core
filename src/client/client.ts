@@ -7,7 +7,6 @@ import { Connection } from "./connection";
 import type { Operation } from "fast-json-patch";
 
 export { Status } from "../common/status";
-export { applyPatch } from "fast-json-patch";
 
 export type PresenceUpdate =
   | {
