@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-import { WebSocket } from "ws";
+import { EventEmitter } from "eventemitter3";
 import { CodeError } from "../common/codeerror";
 import { type Command, parseCommand, stringifyCommand } from "../common/message";
 import { Status } from "../common/status";

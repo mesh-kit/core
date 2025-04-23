@@ -718,8 +718,13 @@ export class MeshServer extends WebSocketServer {
       try {
         const presenceChannel = `mesh:presence:updates:${roomName}`;
 
-        if (!this.channelManager.getSubscribers(presenceChannel)) {
-          this.channelManager.addSubscription(presenceChannel, ctx.connection);
+        this.channelManager.addSubscription(presenceChannel, ctx.connection);
+
+        if (
+          !this.channelManager.getSubscribers(presenceChannel) ||
+          this.channelManager.getSubscribers(presenceChannel)?.size === 1
+        ) {
+          await this.channelManager.subscribeToRedisChannel(presenceChannel);
         }
 
         const present = await this.presenceManager.getPresentConnections(

@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import Redis from "ioredis";
+import "./websocket-polyfill";
 import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 

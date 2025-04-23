@@ -1,6 +1,6 @@
 {
   "name": "@mesh-kit/core",
-  "version": "1.0.3",
+  "version": "1.0.8",
   "type": "module",
   "exports": {
     "./server": {
@@ -41,6 +41,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "eventemitter3": "^5.0.1",
     "fast-json-patch": "^3.1.1",
     "ioredis": "^5.6.1",
     "uuid": "^11.1.0",
