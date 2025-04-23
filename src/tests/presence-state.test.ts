@@ -127,9 +127,14 @@ describe("Presence State", () => {
     await wait(shortTTL + 100);
 
     // check that client1 got the expiration
-    expect(callback).toHaveBeenCalledTimes(3);
+    // we expect 4 callbacks: join + state + two state=null updates
+    // this happens because both the presence key and presence state key expire,
+    // triggering separate events
+    expect(callback).toHaveBeenCalledTimes(4);
     expect(updates[2].type).toBe("state");
     expect(updates[2].state).toBeNull();
+    expect(updates[3].type).toBe("state");
+    expect(updates[3].state).toBeNull();
   });
 
   test("initial presence subscription includes current states", async () => {
