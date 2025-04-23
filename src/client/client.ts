@@ -1,4 +1,3 @@
-import deasync from "deasync";
 import { EventEmitter } from "node:events";
 import { WebSocket } from "ws";
 import { CodeError } from "../common/codeerror";
@@ -366,42 +365,6 @@ export class MeshClient extends EventEmitter {
     }
 
     return this.connection.command(command, payload, expiresIn);
-  }
-
-  /**
-   * Synchronously executes a command by internally invoking the asynchronous `command` method,
-   * blocking the event loop until the asynchronous operation completes. The function returns
-   * the result of the command, or throws an error if the command fails.
-   *
-   * @param {string} command - The command to execute.
-   * @param {*} [payload] - Optional payload to send with the command.
-   * @param {number} [expiresIn=30000] - Optional time in milliseconds before the command expires. Defaults to 30,000 ms.
-   * @returns {*} The result of the executed command.
-   * @throws {Error} Throws an error if the command fails.
-   */
-  commandSync(command: string, payload?: any, expiresIn: number = 30000): any {
-    let result: any;
-    let error: Error | undefined;
-    let done = false;
-
-    this.command(command, payload, expiresIn)
-      .then((res) => {
-        result = res;
-        done = true;
-      })
-      .catch((err) => {
-        error = err;
-        done = true;
-      });
-
-    // block the event loop until the async operation is done
-    deasync.loopWhile(() => !done);
-
-    if (error) {
-      throw error;
-    }
-
-    return result;
   }
 
   private async handlePresenceUpdate(payload: {
