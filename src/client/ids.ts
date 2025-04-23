@@ -1,44 +1,26 @@
 export class IdManager {
-  ids: Array<true | false> = [];
-  index: number = 0;
-  maxIndex: number;
+  private usedIds: Set<number> = new Set();
+  private counter: number = 0;
+  private maxCounter: number;
 
-  constructor(maxIndex: number = 2 ** 16 - 1) {
-    this.maxIndex = maxIndex;
+  constructor(maxCounter: number = 9999) {
+    this.maxCounter = maxCounter;
   }
 
   release(id: number) {
-    if (id < 0 || id > this.maxIndex) {
-      throw new TypeError(
-        `ID must be between 0 and ${this.maxIndex}. Got ${id}.`
-      );
-    }
-    this.ids[id] = false;
+    this.usedIds.delete(id);
   }
 
   reserve(): number {
-    const startIndex = this.index;
+    this.counter = (this.counter + 1) % this.maxCounter;
+    const timestamp = Date.now() % 10000;
+    let id = timestamp * 10000 + this.counter;
 
-    while (true) {
-      const i = this.index;
-
-      if (!this.ids[i]) {
-        this.ids[i] = true;
-
-        return i;
-      }
-
-      if (this.index >= this.maxIndex) {
-        this.index = 0;
-      } else {
-        this.index++;
-      }
-
-      if (this.index === startIndex) {
-        throw new Error(
-          `All IDs are reserved. Make sure to release IDs when they are no longer used.`
-        );
-      }
+    while (this.usedIds.has(id)) {
+      id = (id + 1) % (10000 * 10000);
     }
+
+    this.usedIds.add(id);
+    return id;
   }
 }

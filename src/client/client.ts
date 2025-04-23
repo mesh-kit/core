@@ -104,6 +104,10 @@ export class MeshClient extends EventEmitter {
     }) => void | Promise<void>
   > = new Map();
 
+  private presenceTrackedRooms: Set<string> = new Set();
+  private presenceRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  private presenceRefreshInterval = 15000;
+
   constructor(url: string, opts: MeshClientOptions = {}) {
     super();
     this.url = url;
@@ -241,6 +245,63 @@ export class MeshClient extends EventEmitter {
         this.checkPingStatus();
       }, this.options.pingTimeout);
     }
+
+    this.startPresenceRefreshTimer();
+  }
+
+  private startPresenceRefreshTimer(): void {
+    if (this.presenceRefreshTimer) {
+      return;
+    }
+
+    this.presenceRefreshTimer = setInterval(() => {
+      this.refreshAllPresence();
+    }, this.presenceRefreshInterval);
+  }
+
+  private stopPresenceRefreshTimer(): void {
+    if (this.presenceRefreshTimer) {
+      clearInterval(this.presenceRefreshTimer);
+      this.presenceRefreshTimer = undefined;
+    }
+  }
+
+  private async refreshAllPresence(): Promise<void> {
+    if (
+      this._status !== Status.ONLINE ||
+      this.presenceTrackedRooms.size === 0
+    ) {
+      return;
+    }
+
+    const roomsToRefresh = Array.from(this.presenceTrackedRooms);
+
+    const results = await Promise.allSettled(
+      roomsToRefresh.map(async (roomName) => {
+        try {
+          return await this.command(
+            "mesh/refresh-presence",
+            { roomName },
+            10000
+          );
+        } catch (error) {
+          console.error(
+            `[MeshClient] Failed to refresh presence for room ${roomName}:`,
+            error
+          );
+          return false;
+        }
+      })
+    );
+
+    const successCount = results.filter(
+      (r) => r.status === "fulfilled" && r.value === true
+    ).length;
+    if (successCount < roomsToRefresh.length) {
+      console.warn(
+        `[MeshClient] Refreshed presence for ${successCount}/${roomsToRefresh.length} rooms`
+      );
+    }
   }
 
   private checkPingStatus(): void {
@@ -269,6 +330,8 @@ export class MeshClient extends EventEmitter {
     if (this._status === Status.OFFLINE) {
       return Promise.resolve();
     }
+
+    this.stopPresenceRefreshTimer();
 
     return new Promise((resolve) => {
       const onClose = () => {
@@ -301,6 +364,8 @@ export class MeshClient extends EventEmitter {
     clearTimeout(this.pingTimeout);
     this.pingTimeout = undefined;
     this.missedPings = 0;
+
+    this.stopPresenceRefreshTimer();
 
     let attempt = 1;
 
@@ -597,6 +662,10 @@ export class MeshClient extends EventEmitter {
       return { success: false, present: [] };
     }
 
+    // ensures presence is refreshed even without a presence subscription
+    this.presenceTrackedRooms.add(roomName);
+    this.startPresenceRefreshTimer();
+
     if (!onPresenceUpdate) {
       return { success: true, present: joinResult.present || [] };
     }
@@ -618,8 +687,16 @@ export class MeshClient extends EventEmitter {
   async leaveRoom(roomName: string): Promise<{ success: boolean }> {
     const result = await this.command("mesh/leave-room", { roomName });
 
-    if (result.success && this.presenceSubscriptions.has(roomName)) {
-      await this.unsubscribePresence(roomName);
+    if (result.success) {
+      this.presenceTrackedRooms.delete(roomName);
+
+      if (this.presenceTrackedRooms.size === 0) {
+        this.stopPresenceRefreshTimer();
+      }
+
+      if (this.presenceSubscriptions.has(roomName)) {
+        await this.unsubscribePresence(roomName);
+      }
     }
 
     return { success: result.success };
@@ -647,6 +724,12 @@ export class MeshClient extends EventEmitter {
 
       if (result.success) {
         this.presenceSubscriptions.set(roomName, callback as any);
+        this.presenceTrackedRooms.add(roomName);
+        this.startPresenceRefreshTimer();
+
+        if (result.present && result.present.length > 0) {
+          await callback(result as any);
+        }
       }
 
       return {
@@ -676,6 +759,11 @@ export class MeshClient extends EventEmitter {
       });
       if (success) {
         this.presenceSubscriptions.delete(roomName);
+        this.presenceTrackedRooms.delete(roomName);
+
+        if (this.presenceTrackedRooms.size === 0) {
+          this.stopPresenceRefreshTimer();
+        }
       }
       return success;
     } catch (error) {
@@ -732,6 +820,40 @@ export class MeshClient extends EventEmitter {
     } catch (error) {
       console.error(
         `[MeshClient] Failed to clear presence state for room ${roomName}:`,
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Manually refreshes presence for a specific room
+   *
+   * @param {string} roomName - The name of the room to refresh presence for
+   * @returns {Promise<boolean>} True if successful, false otherwise
+   */
+  async refreshPresence(roomName: string): Promise<boolean> {
+    try {
+      if (this._status !== Status.ONLINE) {
+        return false;
+      }
+
+      const result = await this.command(
+        "mesh/refresh-presence",
+        { roomName },
+        10000
+      );
+
+      // ensure the room is in the tracked set for future auto-refreshes
+      if (result === true) {
+        this.presenceTrackedRooms.add(roomName);
+        this.startPresenceRefreshTimer();
+      }
+
+      return result === true;
+    } catch (error) {
+      console.error(
+        `[MeshClient] Failed to refresh presence for room ${roomName}:`,
         error
       );
       return false;

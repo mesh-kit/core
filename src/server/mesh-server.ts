@@ -15,6 +15,7 @@ import { CommandManager } from "./managers/command";
 import { PubSubManager } from "./managers/pubsub";
 import { RecordSubscriptionManager } from "./managers/record-subscription";
 import { RedisManager } from "./managers/redis";
+import { InstanceManager } from "./managers/instance";
 import type {
   ChannelPattern,
   MeshServerOptions,
@@ -26,6 +27,7 @@ export class MeshServer extends WebSocketServer {
   readonly instanceId: string;
 
   private redisManager: RedisManager;
+  private instanceManager: InstanceManager;
   private commandManager: CommandManager;
   private channelManager: ChannelManager;
   private pubSubManager: PubSubManager;
@@ -63,6 +65,11 @@ export class MeshServer extends WebSocketServer {
     this.redisManager = new RedisManager();
     this.redisManager.initialize(opts.redisOptions, (err) =>
       this.emit("error", err)
+    );
+    
+    this.instanceManager = new InstanceManager(
+      this.redisManager.redis,
+      this.instanceId
     );
 
     this.roomManager = new RoomManager(this.redisManager.redis);
@@ -119,6 +126,7 @@ export class MeshServer extends WebSocketServer {
 
     this.on("listening", () => {
       this.listening = true;
+      this.instanceManager.start();
     });
 
     this.on("error", (err) => {
@@ -832,6 +840,42 @@ export class MeshServer extends WebSocketServer {
         }
       }
     );
+    
+    this.exposeCommand<{ roomName: string }, boolean>(
+      "mesh/refresh-presence",
+      async (ctx) => {
+        const { roomName } = ctx.payload;
+        const connectionId = ctx.connection.id;
+        
+        try {
+          const isInRoom = await this.isInRoom(roomName, connectionId);
+          if (!isInRoom) {
+            return false;
+          }
+          
+          const isTracked = await this.presenceManager.isRoomTracked(roomName, ctx.connection);
+          if (!isTracked) {
+            return false;
+          }
+          
+          const timeoutPromise = new Promise<boolean>((_, reject) => {
+            setTimeout(() => reject(new Error("Refresh presence operation timed out")), 5000);
+          });
+          
+          const refreshPromise = this.presenceManager.refreshPresence(connectionId, roomName)
+            .then(() => true)
+            .catch(e => {
+              console.error(`Failed to refresh presence for room ${roomName}:`, e);
+              return false;
+            });
+          
+          return await Promise.race([refreshPromise, timeoutPromise]);
+        } catch (e) {
+          console.error(`Failed to refresh presence for room ${roomName}:`, e);
+          return false;
+        }
+      }
+    );
   }
 
   // #endregion
@@ -860,6 +904,8 @@ export class MeshServer extends WebSocketServer {
    * @throws {Error} If an error occurs during shutdown, the promise will be rejected with the error.
    */
   async close(callback?: (err?: Error) => void): Promise<void> {
+    await this.instanceManager.stop();
+    
     this.redisManager.isShuttingDown = true;
 
     const connections = Object.values(

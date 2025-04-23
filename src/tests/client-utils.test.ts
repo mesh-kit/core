@@ -331,4 +331,43 @@ describe("createDedupedPresenceHandler", () => {
     // representative should change
     expect(group.representative).toBe("conn456");
   });
+
+  test("automatically processes initial presence list from subscribePresence result", async () => {
+    const getGroupId = vi
+      .fn()
+      .mockImplementation(
+        async (connectionId) => `group:${connectionId.substring(0, 3)}`
+      );
+
+    const onUpdate = vi.fn();
+
+    const handler = createDedupedPresenceHandler({
+      getGroupId,
+      onUpdate,
+    });
+
+    const subscribeResult = {
+      success: true,
+      present: ["conn123", "conn456", "conn789"],
+    };
+
+    await handler(subscribeResult as any);
+
+    expect(getGroupId).toHaveBeenCalledTimes(3);
+    expect(getGroupId).toHaveBeenCalledWith("conn123");
+    expect(getGroupId).toHaveBeenCalledWith("conn456");
+    expect(getGroupId).toHaveBeenCalledWith("conn789");
+
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+
+    const groupMap = onUpdate.mock.calls![0]![0] as Map<string, any>;
+    expect(groupMap.size).toBe(1);
+    expect(groupMap.has("group:con")).toBe(true);
+
+    const group = groupMap.get("group:con");
+    expect(group.members.size).toBe(3);
+    expect(group.members.has("conn123")).toBe(true);
+    expect(group.members.has("conn456")).toBe(true);
+    expect(group.members.has("conn789")).toBe(true);
+  });
 });

@@ -25,7 +25,7 @@ export class PresenceManager {
     (connection: Connection, roomName: string) => Promise<boolean> | boolean
   > = new Map();
   private roomTTLs: Map<ChannelPattern, number> = new Map();
-  private defaultTTL = 30_000; // 30 seconds default TTL
+  private defaultTTL = 120_000; // seconds
 
   constructor(
     redis: Redis,

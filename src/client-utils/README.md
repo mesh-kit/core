@@ -35,7 +35,10 @@ const handler = createDedupedPresenceHandler({
   },
 });
 
-await client.subscribePresence("room:chat", handler);
+const { success, present } = await client.subscribePresence(
+  "chat",
+  handler
+);
 ```
 
 **What does `groups` contain?**
