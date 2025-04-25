@@ -1,96 +1,151 @@
-## Deduplicated Presence
+## Presence (Unified API)
 
-Sometimes, a single user may have multiple connections (tabs, devices) in a room. By default, `subscribePresence(...)` emits events for each connection individually — so a single user might appear multiple times.
+Most apps don’t care about *connections* — they care about *users*.  
+But by default, Mesh tracks presence per connection.
 
-The `createDedupedPresenceHandler` utility helps you group those events into a single presence entry per logical entity — such as a user — using whatever logic you define.
+If a user opens two tabs, each tab has a different connection ID.  
+That’s intentional — but it means presence data can look messy unless you group it.
 
-This is useful for:
+The `createPresence(...)` helper handles this for you.
 
-- Showing a clean "who's online" list
-- Displaying a single "typing..." indicator per user
-- Tracking presence by user, session, device, or any custom identifier
+It:
 
-### Usage
+- Deduplicates presence by user ID (or any logic you define)
+- Syncs your own presence state via `localStorage`
+- Automatically joins the room and tracks updates
+- Calls your `onUpdate` handler when the user list changes
 
-```ts
-import { createDedupedPresenceHandler } from "@prsm/mesh/client-utils";
-import { client } from "./client"; // your MeshClient instance
+---
 
-const handler = createDedupedPresenceHandler({
-  getGroupId: async (connectionId) => {
-    // Group by userId if available, otherwise fallback to connectionId
-    const metadata = await client.getConnectionMetadata(connectionId);
-    return metadata.userId ?? connectionId;
-  },
-  onUpdate: (groups) => {
-    // `groups` is a Map<groupId, group>
-    const users = Array.from(groups.entries()).map(([groupId, group]) => ({
-      id: groupId,
-      state: group.state,
-      tabCount: group.members.size,
-    }));
+### Quick example
 
-    // Defined below
-    renderPresenceList(users);
+999ts
+import { MeshClient } from "@mesh-kit/core/client";
+import { createPresence } from "@mesh-kit/core/client-utils";
+
+const client = new MeshClient("ws://localhost:3000");
+await client.connect();
+
+const userId = getOrCreateId("demo-userId"); // stored in localStorage
+
+const presence = createPresence({
+  client,
+  room: "general",
+  storageKey: "user-state",
+  stateIdentifier: (state) => state?.userId,
+  onUpdate: (users) => {
+    // users: Array<{ id, state, tabCount }>
+    render(users);
   },
 });
 
-const { success, present } = await client.subscribePresence(
-  "chat",
-  handler
-);
-```
+await presence.publish({
+  userId,
+  username: "Alice",
+  status: "online",
+});
+999
 
-**What does `groups` contain?**
+---
 
-Each `group` looks like this:
+### What it does
 
-```ts
-{
-  representative: "conn123",               // Most recent connection to update state
-  state: { status: "typing" },             // Most recent presence state (or null)
-  timestamp: 1713748000000,                // Time of last state update
-  members: new Set(["conn123", "conn456"]) // All connections in the group
-}
-```
+`createPresence(...)` combines two things:
 
-You can group by basically anything in `getGroupId` — connection metadata, session cookies, localStorage — it's up to you. In the example above, we're grouping by `userId` if present, or falling back to `connectionId` so that all connections are still shown individually when needed.
+1. **Deduplicated presence tracking**  
+   Groups connections using a `stateIdentifier(state)` function (e.g. by userId)
 
-### Smart handling of presence updates
+2. **Presence state publishing + sync**  
+   Stores your own presence state in `localStorage` and republish it after reconnects
 
-The handler is designed to work with both:
-- Individual presence updates (join/leave/state events)
-- The initial presence list returned from `subscribePresence`
+---
 
-It automatically:
-- Adds new connections to their appropriate groups
-- Removes connections when they leave
-- Selects a new representative if the current one leaves
-- Removes groups when all their connections leave
-- Reconciles the current state with the server state when reconnecting
+### API
 
-### Rendering to the DOM
+999ts
+const presence = createPresence({
+  client,              // required — MeshClient
+  room,                // required — string
+  storageKey,          // required — key used to persist your state in localStorage
+  stateIdentifier,     // required — function (sync or async) that returns a group ID from a state
+  onUpdate,            // required — (users: Array<{ id, state, tabCount }>) => void
+});
+999
 
-Here's a simple example that displays deduplicated users in the UI:
+The returned object has:
 
-```ts
-function renderPresenceList(users) {
-  const container = document.querySelector("#presence");
-  container.innerHTML = users
-    .map((user) => {
-      const status = user.state?.status ?? "idle";
-      return `
-      <div>
-        <strong>${user.id}</strong>: ${status} (tabs: ${user.tabCount})
-      </div>`;
-    })
-    .join("");
-}
-```
+- `publish(state)` — sets and broadcasts your presence state
+- `read()` — reads your last state from `localStorage`
+- `clear()` — clears your presence from both `localStorage` and the server
 
-Shows something like:
+---
 
-```
-Alice: typing (tabs: 2)
-conn-m9sdkxww000007079ff77: idle (tabs: 1)
-```
+### Complete browser demo
+
+```html
+<!DOCTYPE html>
+<html>
+  <head><title>Presence Demo</title></head>
+  <body>
+    <h2>Users (<span id="count">0</span>)</h2>
+    <input id="username" placeholder="Username" />
+    <input id="status" placeholder="Status" />
+    <button id="update">Update</button>
+    <button id="clear">Clear</button>
+    <ul id="user-list"></ul>
+    
+    <script type="module">
+      import { MeshClient } from "https://esm.sh/@mesh-kit/core/client";
+      import { createPresence } from "https://esm.sh/@mesh-kit/core/client-utils";
+
+      const client = new MeshClient("ws://localhost:3000");
+      await client.connect();
+
+      const userId = getOrCreateId("demo-userId");
+
+      const render = (users) => {
+        document.getElementById("count").textContent = users.length;
+        const ul = document.getElementById("user-list");
+        ul.innerHTML = "";
+        for (const user of users) {
+          const li = document.createElement("li");
+          li.textContent = `${user.id}: ${user.state?.status ?? "idle"} (tabs: ${user.tabCount})`;
+          ul.appendChild(li);
+        }
+      };
+
+      const presence = createPresence({
+        client,
+        room: "general",
+        storageKey: "user-state",
+        stateIdentifier: (state) => state?.userId,
+        onUpdate: render,
+      });
+
+      const cached = presence.read();
+      username.value = cached?.username ?? "";
+      status.value = cached?.status ?? "";
+
+      update.onclick = () => presence.publish({
+        userId,
+        username: username.value,
+        status: status.value,
+      });
+
+      clear.onclick = () => {
+        presence.clear();
+        username.value = "";
+        status.value = "";
+      };
+
+      function getOrCreateId(key) {
+        let id = localStorage.getItem(key);
+        if (!id) {
+          id = "user-" + Math.random().toString(36).slice(2, 8);
+          localStorage.setItem(key, id);
+        }
+        return id;
+      }
+    </script>
+  </body>
+</html>

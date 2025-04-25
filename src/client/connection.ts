@@ -1,6 +1,10 @@
 import { EventEmitter } from "eventemitter3";
 import { CodeError } from "../common/codeerror";
-import { type Command, parseCommand, stringifyCommand } from "../common/message";
+import {
+  type Command,
+  parseCommand,
+  stringifyCommand,
+} from "../common/message";
 import { Status } from "../common/status";
 import { IdManager } from "./ids";
 import { Queue } from "./queue";
@@ -11,6 +15,7 @@ export class Connection extends EventEmitter {
   queue = new Queue();
   callbacks: { [id: number]: (result: any, error?: Error) => void } = {};
   status: Status = Status.OFFLINE;
+  connectionId?: string;
 
   constructor(socket: WebSocket | null) {
     super();
@@ -78,7 +83,10 @@ export class Connection extends EventEmitter {
 
         this.emit("message", data);
 
-        if (data.command === "latency:request") {
+        if (data.command === "mesh/assign-id") {
+          this.connectionId = data.payload;
+          this.emit("id-assigned", data.payload);
+        } else if (data.command === "latency:request") {
           this.emit("latency:request", data.payload);
           this.command("latency:response", data.payload, null);
         } else if (data.command === "latency") {

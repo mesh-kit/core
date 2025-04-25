@@ -66,7 +66,7 @@ export class MeshServer extends WebSocketServer {
     this.redisManager.initialize(opts.redisOptions, (err) =>
       this.emit("error", err)
     );
-    
+
     this.instanceManager = new InstanceManager(
       this.redisManager.redis,
       this.instanceId
@@ -188,6 +188,11 @@ export class MeshServer extends WebSocketServer {
 
       try {
         await this.connectionManager.registerConnection(connection);
+
+        connection.send({
+          command: "mesh/assign-id",
+          payload: connection.id,
+        });
       } catch (error) {
         connection.close();
         return;
@@ -840,35 +845,45 @@ export class MeshServer extends WebSocketServer {
         }
       }
     );
-    
+
     this.exposeCommand<{ roomName: string }, boolean>(
       "mesh/refresh-presence",
       async (ctx) => {
         const { roomName } = ctx.payload;
         const connectionId = ctx.connection.id;
-        
+
         try {
           const isInRoom = await this.isInRoom(roomName, connectionId);
           if (!isInRoom) {
             return false;
           }
-          
-          const isTracked = await this.presenceManager.isRoomTracked(roomName, ctx.connection);
+
+          const isTracked = await this.presenceManager.isRoomTracked(
+            roomName,
+            ctx.connection
+          );
           if (!isTracked) {
             return false;
           }
-          
+
           const timeoutPromise = new Promise<boolean>((_, reject) => {
-            setTimeout(() => reject(new Error("Refresh presence operation timed out")), 5000);
+            setTimeout(
+              () => reject(new Error("Refresh presence operation timed out")),
+              5000
+            );
           });
-          
-          const refreshPromise = this.presenceManager.refreshPresence(connectionId, roomName)
+
+          const refreshPromise = this.presenceManager
+            .refreshPresence(connectionId, roomName)
             .then(() => true)
-            .catch(e => {
-              console.error(`Failed to refresh presence for room ${roomName}:`, e);
+            .catch((e) => {
+              console.error(
+                `Failed to refresh presence for room ${roomName}:`,
+                e
+              );
               return false;
             });
-          
+
           return await Promise.race([refreshPromise, timeoutPromise]);
         } catch (e) {
           console.error(`Failed to refresh presence for room ${roomName}:`, e);
@@ -905,7 +920,7 @@ export class MeshServer extends WebSocketServer {
    */
   async close(callback?: (err?: Error) => void): Promise<void> {
     await this.instanceManager.stop();
-    
+
     this.redisManager.isShuttingDown = true;
 
     const connections = Object.values(

@@ -3,6 +3,28 @@ export interface Group<TState> {
   state: TState | null;
 }
 
+/**
+ * Creates a deduplicated presence handler that groups connections by a logical identifier
+ * (e.g. user ID, session ID, device ID). Useful for collapsing multiple tabs or devices
+ * into a single presence entry in your app's UI.
+ *
+ * @template TState The shape of your presence state.
+ * @param {Object} options - Configuration options for the deduplicated presence handler.
+ * @param {(state: TState) => string | undefined} options.getGroupIdFromState - A function that returns the group ID for a given state.
+ * @param {(groups: Map<string, { state: TState, members: Set<string> }>) => void} options.onUpdate - Called whenever the deduplicated group list changes.
+ * @returns {Object} A presence update handler with an `.init()` method to hydrate initial state.
+ *
+ * @example
+ * const handler = createDedupedPresenceHandler({
+ *   getGroupIdFromState: (state) => state?.userId,
+ *   onUpdate: (groups) => {
+ *     // Use groups Map<string, { state, members }>
+ *   },
+ * });
+ *
+ * await client.subscribePresence("room:chat", handler);
+ * handler.init(present, states);
+ */
 export function createDedupedPresenceHandler<TState>(config: {
   getGroupIdFromState: (state: TState | null | undefined) => string | undefined;
   onUpdate: (groups: Map<string, Group<TState>>) => void;
@@ -73,7 +95,6 @@ export function createDedupedPresenceHandler<TState>(config: {
     update();
   }
 
-  // Create handler function with .init method attached
   const handler = ((update: {
     type: "join" | "leave" | "state";
     connectionId: string;
@@ -104,3 +125,5 @@ export function createDedupedPresenceHandler<TState>(config: {
 
   return handler;
 }
+
+export { createPresence } from "./presence";

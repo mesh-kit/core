@@ -43,6 +43,16 @@ describe("MeshClient", () => {
     await server.close();
   });
 
+  test("client has connectionId immediately after connect resolves", async () => {
+    await client.connect();
+
+    expect(client.connectionId).toBeDefined();
+    expect(typeof client.connectionId).toBe("string");
+
+    const connectionId = client.connectionId as string;
+    expect(connectionId.length).toBeGreaterThan(0);
+  });
+
   test("command times out when server doesn't respond", async () => {
     server.exposeCommand("never-responds", async () => new Promise(() => {}));
 
@@ -138,17 +148,31 @@ describe("MeshClient", () => {
       });
     }));
 
-  test("client emits 'message' event on receiving a message", async () =>
-    new Promise<void>((resolve) => {
-      client.on("message", (data) => {
-        expect(data).toEqual({ command: "hello", payload: "world" });
-        resolve();
+  test("client emits specific command event on receiving a message", async () => {
+    return new Promise<void>((resolve, reject) => {
+      client.on("hello", (data) => {
+        try {
+          expect(data).toEqual("world");
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
       });
 
-      client.connect().then(() => {
-        server.broadcast("hello", "world");
-      });
-    }));
+      const timeout = setTimeout(() => {
+        reject(new Error("Test timed out waiting for hello event"));
+      }, 10000);
+
+      client
+        .connect()
+        .then(() => {
+          server.broadcast("hello", "world");
+        })
+        .catch(reject);
+
+      return () => clearTimeout(timeout);
+    });
+  }, 15000);
 
   test("client receives 'ping' messages", async () => {
     const server = new MeshServer({

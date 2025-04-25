@@ -127,6 +127,10 @@ export class MeshClient extends EventEmitter {
     return this._status;
   }
 
+  get connectionId(): string | undefined {
+    return this.connection.connectionId;
+  }
+
   private setupConnectionEvents(): void {
     this.connection.on("message", (data) => {
       this.emit("message", data);
@@ -216,8 +220,18 @@ export class MeshClient extends EventEmitter {
           this.connection.applyListeners();
           this.heartbeat();
 
-          this.emit("connect");
-          resolve();
+          const onIdAssigned = () => {
+            this.connection.removeListener("id-assigned", onIdAssigned);
+            this.emit("connect");
+            resolve();
+          };
+
+          if (this.connection.connectionId) {
+            this.emit("connect");
+            resolve();
+          } else {
+            this.connection.once("id-assigned", onIdAssigned);
+          }
         };
 
         this.socket.onerror = (error) => {
@@ -401,8 +415,18 @@ export class MeshClient extends EventEmitter {
         this.connection.applyListeners(true);
         this.heartbeat();
 
-        this.emit("connect");
-        this.emit("reconnect");
+        const onIdAssigned = () => {
+          this.connection.removeListener("id-assigned", onIdAssigned);
+          this.emit("connect");
+          this.emit("reconnect");
+        };
+
+        if (this.connection.connectionId) {
+          this.emit("connect");
+          this.emit("reconnect");
+        } else {
+          this.connection.once("id-assigned", onIdAssigned);
+        }
       };
     };
 
