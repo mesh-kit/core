@@ -262,14 +262,14 @@ describe("Redis Channel Subscription", () => {
     expect(Array.isArray(history)).toBe(true);
     expect(history.length).toBe(3);
     
-    // ensure newest are first
-    expect(history[0]).toBe("History message 5");
-    expect(history[1]).toBe("History message 4");
+    // ensure oldest are first (rpush order)
+    expect(history[0]).toBe("History message 1");
+    expect(history[1]).toBe("History message 2");
     expect(history[2]).toBe("History message 3");
     
+    expect(receivedMessages).toContain("History message 1");
+    expect(receivedMessages).toContain("History message 2");
     expect(receivedMessages).toContain("History message 3");
-    expect(receivedMessages).toContain("History message 4");
-    expect(receivedMessages).toContain("History message 5");
     expect(receivedMessages.length).toBe(3);
   });
 });
