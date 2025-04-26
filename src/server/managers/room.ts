@@ -83,6 +83,17 @@ export class RoomManager {
   }
 
   /**
+   * Retrieves all room names from Redis.
+   *
+   * @returns {Promise<string[]>} A promise that resolves to an array of all room names.
+   * @throws {Error} If there is an issue communicating with Redis, the promise will be rejected with an error.
+   */
+  async getAllRooms(): Promise<string[]> {
+    const keys = await this.redis.keys("mesh:room:*");
+    return keys.map((key) => key.replace("mesh:room:", ""));
+  }
+
+  /**
    * Removes a connection from a specified room and updates Redis accordingly.
    * Accepts either a Connection object or a string representing the connection ID.
    * Updates both the room's set of connections and the connection's set of rooms in Redis.

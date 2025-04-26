@@ -88,8 +88,9 @@ export class ChannelManager {
    * @param {any} message - The message to be published. Will not be stringified automatically for you. You need to do that yourself.
    * @param {number} [history=0] - The number of historical messages to retain for the channel. Defaults to 0, meaning no history is retained.
    *                               If greater than 0, the message will be added to the channel's history and the history will be trimmed to the specified size.
+   *                               Messages are appended to the end of the history list using RPUSH.
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
-   * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `lpush`, `ltrim`, `publish`) fail.
+   * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `rpush`, `ltrim`, `publish`) fail.
    */
   async publishToChannel(
     channel: string,
@@ -98,8 +99,8 @@ export class ChannelManager {
   ): Promise<void> {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
-      await this.pubClient.lpush(`history:${channel}`, message);
-      await this.pubClient.ltrim(`history:${channel}`, 0, parsedHistory);
+      await this.pubClient.rpush(`history:${channel}`, message);
+      await this.pubClient.ltrim(`history:${channel}`, 0, parsedHistory - 1);
     }
     await this.pubClient.publish(channel, message);
   }

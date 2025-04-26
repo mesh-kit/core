@@ -99,4 +99,25 @@ describe("MeshServer", () => {
     await server.roomManager.clearRoom(room1);
     expect(await server.roomManager.getMetadata(room1)).toBeNull();
   });
+
+  test("getAllRooms", async () => {
+    await clientA.connect();
+    await clientB.connect();
+
+    await clientA.joinRoom("room1");
+    await clientB.joinRoom("room1");
+    await clientA.joinRoom("room2");
+
+    const rooms = await server.getAllRooms();
+    expect(rooms).toEqual(expect.arrayContaining(["room1", "room2"]));
+
+    await clientA.leaveRoom("room1");
+    const updatedRooms = await server.getAllRooms();
+    expect(updatedRooms).toEqual(expect.arrayContaining(["room1", "room2"]));
+
+    await clientB.leaveRoom("room1");
+    const finalRooms = await server.getAllRooms();
+    expect(finalRooms.length).toBe(1);
+    expect(finalRooms).toEqual(expect.arrayContaining(["room2"]));
+  });
 });

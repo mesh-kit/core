@@ -413,6 +413,10 @@ export class MeshServer extends WebSocketServer {
     return this.roomManager.getRoomConnectionIds(roomName);
   }
 
+  async getAllRooms(): Promise<string[]> {
+    return this.roomManager.getAllRooms();
+  }
+
   // #endregion
 
   // #region Broadcasting
