@@ -59,7 +59,10 @@ describe("Redis Channel Subscription", () => {
   test("client cannot subscribe to an unexposed channel", async () => {
     await client1.connect();
 
-    const result = await client1.subscribeChannel("unexposed:channel", () => {});
+    const result = await client1.subscribeChannel(
+      "unexposed:channel",
+      () => {}
+    );
     expect(result.success).toBe(false);
     expect(Array.isArray(result.history)).toBe(true);
     expect(result.history.length).toBe(0);
@@ -244,32 +247,85 @@ describe("Redis Channel Subscription", () => {
     await client1.connect();
 
     const historySize = 10;
-    await server.publishToChannel("test:channel", "History message 1", historySize);
-    await server.publishToChannel("test:channel", "History message 2", historySize);
-    await server.publishToChannel("test:channel", "History message 3", historySize);
-    await server.publishToChannel("test:channel", "History message 4", historySize);
-    await server.publishToChannel("test:channel", "History message 5", historySize);
-    
+    await server.publishToChannel(
+      "test:channel",
+      "History message 1",
+      historySize
+    );
+    await server.publishToChannel(
+      "test:channel",
+      "History message 2",
+      historySize
+    );
+    await server.publishToChannel(
+      "test:channel",
+      "History message 3",
+      historySize
+    );
+    await server.publishToChannel(
+      "test:channel",
+      "History message 4",
+      historySize
+    );
+    await server.publishToChannel(
+      "test:channel",
+      "History message 5",
+      historySize
+    );
+
     const receivedMessages: string[] = [];
-    
-    const { success, history } = await client1.subscribeChannel("test:channel", (message) => {
-      receivedMessages.push(message);
-    }, { historyLimit: 3 });
-    
+
+    const { success, history } = await client1.subscribeChannel(
+      "test:channel",
+      (message) => {
+        receivedMessages.push(message);
+      },
+      { historyLimit: 3 }
+    );
+
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
-    
+
     expect(success).toBe(true);
     expect(Array.isArray(history)).toBe(true);
     expect(history.length).toBe(3);
-    
+
     // ensure oldest are first (rpush order)
     expect(history[0]).toBe("History message 1");
     expect(history[1]).toBe("History message 2");
     expect(history[2]).toBe("History message 3");
-    
+
     expect(receivedMessages).toContain("History message 1");
     expect(receivedMessages).toContain("History message 2");
     expect(receivedMessages).toContain("History message 3");
     expect(receivedMessages.length).toBe(3);
+  });
+
+  test("channel history correctly trims oldest messages when limit is exceeded", async () => {
+    await client1.connect();
+
+    const historyLimit = 3;
+
+    await server.publishToChannel("test:channel", "Message 1", historyLimit);
+    await server.publishToChannel("test:channel", "Message 2", historyLimit);
+    await server.publishToChannel("test:channel", "Message 3", historyLimit);
+    await server.publishToChannel("test:channel", "Message 4", historyLimit);
+
+    const { history } = await client1.subscribeChannel(
+      "test:channel",
+      () => {},
+      { historyLimit }
+    );
+
+    expect(history.length).toBe(historyLimit);
+
+    expect(history).not.toContain("Message 1");
+
+    expect(history).toContain("Message 2");
+    expect(history).toContain("Message 3");
+    expect(history).toContain("Message 4");
+
+    expect(history[0]).toBe("Message 2");
+    expect(history[1]).toBe("Message 3");
+    expect(history[2]).toBe("Message 4");
   });
 });

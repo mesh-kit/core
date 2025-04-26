@@ -100,7 +100,7 @@ export class ChannelManager {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
       await this.pubClient.rpush(`history:${channel}`, message);
-      await this.pubClient.ltrim(`history:${channel}`, 0, parsedHistory - 1);
+      await this.pubClient.ltrim(`history:${channel}`, -parsedHistory, -1);
     }
     await this.pubClient.publish(channel, message);
   }
