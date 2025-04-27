@@ -108,6 +108,19 @@ export class MeshClient extends EventEmitter {
   private presenceRefreshTimer: ReturnType<typeof setInterval> | undefined;
   private presenceRefreshInterval = 15000;
 
+  private joinedRooms: Map<
+    string, // roomName
+    PresenceUpdateCallback | undefined
+  > = new Map();
+
+  private channelSubscriptions: Map<
+    string, // channel
+    {
+      callback: (message: string) => void | Promise<void>;
+      historyLimit?: number;
+    }
+  > = new Map();
+
   constructor(url: string, opts: MeshClientOptions = {}) {
     super();
     this.url = url;
@@ -121,6 +134,114 @@ export class MeshClient extends EventEmitter {
     };
 
     this.setupConnectionEvents();
+    this.setupVisibilityHandling();
+  }
+
+  private _lastActivityTime: number = Date.now();
+  private _isBrowser: boolean = false;
+
+  /**
+   * Periodically check if we've been inactive for too long, and if we have,
+   * try to send a noop command to the server to see if we're still connected.
+   * If we get no response, we'll assume the connection is dead and force a reconnect.
+   */
+  private _checkActivity(): void {
+    if (!this._isBrowser) return;
+
+    const now = Date.now();
+    const timeSinceActivity = now - this._lastActivityTime;
+
+    // if we've been inactive for longer than the ping timeout but think we're online,
+    // we might have missed pings from the server
+    if (
+      timeSinceActivity > this.options.pingTimeout &&
+      this._status === Status.ONLINE
+    ) {
+      try {
+        this.command("mesh/noop", {}, 5000).catch(() => {
+          console.log(
+            `[MeshClient] No activity for ${timeSinceActivity}ms, forcing reconnect`
+          );
+          this.forceReconnect();
+        });
+      } catch (e) {
+        // if we get no response from the noop, we'll assume the connection is dead
+        // and force a reconnect
+        this.forceReconnect();
+      }
+    }
+
+    if (this._status === Status.ONLINE) {
+      this._lastActivityTime = now;
+    }
+  }
+
+  /**
+   * Sets up event listeners and periodic timer to monitor user activity and tab visibility.
+   * Reconnects when the user returns to the tab after a period of inactivity.
+   */
+  private setupVisibilityHandling(): void {
+    try {
+      this._isBrowser =
+        !!(global as any).document &&
+        typeof (global as any).document.addEventListener === "function";
+
+      if (!this._isBrowser) {
+        return;
+      }
+
+      // periodic activity check
+      setInterval(() => {
+        this._checkActivity();
+      }, 10000);
+
+      // update activity time on any user interaction
+      try {
+        const doc = (global as any).document;
+        const events = [
+          "mousedown",
+          "keydown",
+          "touchstart",
+          "visibilitychange",
+        ];
+
+        events.forEach((eventName) => {
+          doc.addEventListener(eventName, () => {
+            const wasInactive =
+              Date.now() - this._lastActivityTime > this.options.pingTimeout;
+            this._lastActivityTime = Date.now();
+
+            // if visibility changed to visible and we were inactive for too long, reconnect
+            if (
+              eventName === "visibilitychange" &&
+              doc.visibilityState === "visible" &&
+              wasInactive
+            ) {
+              this.forceReconnect();
+            }
+          });
+        });
+      } catch (e) {
+        // ignore
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // force a reconnection
+  private forceReconnect(): void {
+    if (this.socket) {
+      try {
+        this.socket.close();
+      } catch (e) {}
+    }
+
+    this._status = Status.OFFLINE;
+    this.connection.socket = null;
+    this.connection.status = Status.OFFLINE;
+
+    this.reconnect();
   }
 
   get status(): Status {
@@ -415,15 +536,20 @@ export class MeshClient extends EventEmitter {
         this.connection.applyListeners(true);
         this.heartbeat();
 
-        const onIdAssigned = () => {
+        const onIdAssigned = async () => {
           this.connection.removeListener("id-assigned", onIdAssigned);
+
+          await this.resubscribeAll();
+
           this.emit("connect");
           this.emit("reconnect");
         };
 
         if (this.connection.connectionId) {
-          this.emit("connect");
-          this.emit("reconnect");
+          this.resubscribeAll().then(() => {
+            this.emit("connect");
+            this.emit("reconnect");
+          });
         } else {
           this.connection.once("id-assigned", onIdAssigned);
         }
@@ -528,6 +654,11 @@ export class MeshClient extends EventEmitter {
     callback: (message: string) => void | Promise<void>,
     options?: { historyLimit?: number }
   ): Promise<{ success: boolean; history: string[] }> {
+    this.channelSubscriptions.set(channel, {
+      callback,
+      historyLimit: options?.historyLimit,
+    });
+
     this.on(
       "mesh/subscription-message",
       async (data: { channel: string; message: string }) => {
@@ -563,6 +694,7 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<boolean>} A promise that resolves to true if the unsubscription is successful, or false otherwise.
    */
   unsubscribeChannel(channel: string): Promise<boolean> {
+    this.channelSubscriptions.delete(channel);
     return this.command("mesh/unsubscribe-channel", { channel });
   }
 
@@ -686,6 +818,8 @@ export class MeshClient extends EventEmitter {
       return { success: false, present: [] };
     }
 
+    this.joinedRooms.set(roomName, onPresenceUpdate);
+
     // ensures presence is refreshed even without a presence subscription
     this.presenceTrackedRooms.add(roomName);
     this.startPresenceRefreshTimer();
@@ -712,6 +846,7 @@ export class MeshClient extends EventEmitter {
     const result = await this.command("mesh/leave-room", { roomName });
 
     if (result.success) {
+      this.joinedRooms.delete(roomName);
       this.presenceTrackedRooms.delete(roomName);
 
       if (this.presenceTrackedRooms.size === 0) {
@@ -980,5 +1115,87 @@ export class MeshClient extends EventEmitter {
   onReconnectFailed(callback: () => void): this {
     this.on("reconnectfailed", callback);
     return this;
+  }
+
+  /**
+   * Resubscribes to all rooms, records, and channels after a reconnection.
+   * Triggered during reconnection to restore the client's subscriptions, their handlers, and their configuration.
+   *
+   * @returns {Promise<void>} A promise that resolves when all resubscriptions are complete.
+   */
+  private async resubscribeAll(): Promise<void> {
+    console.log(
+      "[MeshClient] Resubscribing to all subscriptions after reconnect"
+    );
+
+    try {
+      // rooms
+      const roomPromises = Array.from(this.joinedRooms.entries()).map(
+        async ([roomName, presenceCallback]) => {
+          try {
+            console.log(`[MeshClient] Rejoining room: ${roomName}`);
+            await this.joinRoom(roomName, presenceCallback);
+            return true;
+          } catch (error) {
+            console.error(
+              `[MeshClient] Failed to rejoin room ${roomName}:`,
+              error
+            );
+            return false;
+          }
+        }
+      );
+
+      // records
+      const recordPromises = Array.from(this.recordSubscriptions.entries()).map(
+        async ([recordId, { callback, mode }]) => {
+          try {
+            console.log(`[MeshClient] Resubscribing to record: ${recordId}`);
+            await this.subscribeRecord(recordId, callback, { mode });
+            return true;
+          } catch (error) {
+            console.error(
+              `[MeshClient] Failed to resubscribe to record ${recordId}:`,
+              error
+            );
+            return false;
+          }
+        }
+      );
+
+      // channels
+      const channelPromises = Array.from(
+        this.channelSubscriptions.entries()
+      ).map(async ([channel, { callback, historyLimit }]) => {
+        try {
+          console.log(`[MeshClient] Resubscribing to channel: ${channel}`);
+          await this.subscribeChannel(channel, callback, { historyLimit });
+          return true;
+        } catch (error) {
+          console.error(
+            `[MeshClient] Failed to resubscribe to channel ${channel}:`,
+            error
+          );
+          return false;
+        }
+      });
+
+      // wait for all subscriptions to be resubscribed
+      const results = await Promise.allSettled([
+        ...roomPromises,
+        ...recordPromises,
+        ...channelPromises,
+      ]);
+
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled" && r.value === true
+      ).length;
+
+      console.log(
+        `[MeshClient] Resubscribed to ${successCount}/${results.length} subscriptions`
+      );
+    } catch (error) {
+      console.error("[MeshClient] Error during resubscription:", error);
+    }
   }
 }

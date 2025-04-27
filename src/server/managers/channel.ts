@@ -99,8 +99,8 @@ export class ChannelManager {
   ): Promise<void> {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
-      await this.pubClient.rpush(`history:${channel}`, message);
-      await this.pubClient.ltrim(`history:${channel}`, -parsedHistory, -1);
+      await this.pubClient.rpush(`mesh:history:${channel}`, message);
+      await this.pubClient.ltrim(`mesh:history:${channel}`, -parsedHistory, -1);
     }
     await this.pubClient.publish(channel, message);
   }
@@ -184,7 +184,7 @@ export class ChannelManager {
    * @returns A promise that resolves to an array of history items
    */
   async getChannelHistory(channel: string, limit: number): Promise<string[]> {
-    const historyKey = `history:${channel}`;
+    const historyKey = `mesh:history:${channel}`;
     return this.redis.lrange(historyKey, 0, limit - 1);
   }
 

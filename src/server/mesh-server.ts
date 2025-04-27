@@ -521,6 +521,10 @@ export class MeshServer extends WebSocketServer {
   // #region Command Registration
 
   private registerBuiltinCommands() {
+    // Register a no-op command for connection testing
+    this.exposeCommand("mesh/noop", async () => {
+      return true;
+    });
     this.exposeCommand<
       { channel: string; historyLimit?: number },
       { success: boolean; history?: string[] }
@@ -539,13 +543,10 @@ export class MeshServer extends WebSocketServer {
         }
         this.channelManager.addSubscription(channel, ctx.connection);
 
-        let history: string[] = [];
-        if (historyLimit && historyLimit > 0) {
-          history = await this.channelManager.getChannelHistory(
-            channel,
-            historyLimit
-          );
-        }
+        const history: string[] =
+          historyLimit && historyLimit > 0
+            ? await this.channelManager.getChannelHistory(channel, historyLimit)
+            : [];
 
         return {
           success: true,
