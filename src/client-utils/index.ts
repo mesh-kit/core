@@ -95,25 +95,24 @@ export function createDedupedPresenceHandler<TState>(config: {
     update();
   }
 
-  const handler = ((update: {
-    type: "join" | "leave" | "state";
-    connectionId: string;
-    state?: TState | null;
-  }) => {
-    if (update.type === "join") join(update.connectionId);
-    else if (update.type === "leave") leave(update.connectionId);
-    else if (update.type === "state")
-      updateState(update.connectionId, update.state ?? null);
-  }) as ((update: {
-    type: "join" | "leave" | "state";
-    connectionId: string;
-    state?: TState | null;
-  }) => void) & {
+  type Update =
+    | { type: "join"; connectionId: string }
+    | { type: "leave"; connectionId: string }
+    | { type: "state"; connectionId: string; state?: TState | null };
+
+  type Handler = ((update: Update) => void) & {
     init: (
       present: string[],
       states: Record<string, TState | null | undefined>
     ) => void;
   };
+
+  const handler: Handler = ((update: Update) => {
+    if (update.type === "join") join(update.connectionId);
+    else if (update.type === "leave") leave(update.connectionId);
+    else if (update.type === "state")
+      updateState(update.connectionId, update.state ?? null);
+  }) as Handler;
 
   handler.init = (present, states) => {
     for (const connectionId of present) {

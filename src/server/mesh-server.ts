@@ -896,6 +896,47 @@ export class MeshServer extends WebSocketServer {
         }
       }
     );
+
+    this.exposeCommand<
+      { roomName: string },
+      {
+        success: boolean;
+        present: string[];
+        states?: Record<string, Record<string, any>>;
+      }
+    >("mesh/get-presence-state", async (ctx) => {
+      const { roomName } = ctx.payload;
+
+      if (
+        !(await this.presenceManager.isRoomTracked(roomName, ctx.connection))
+      ) {
+        return { success: false, present: [] };
+      }
+
+      try {
+        const present = await this.presenceManager.getPresentConnections(
+          roomName
+        );
+
+        const statesMap = await this.presenceManager.getAllPresenceStates(
+          roomName
+        );
+        const states: Record<string, Record<string, any>> = {};
+
+        statesMap.forEach((state, connectionId) => {
+          states[connectionId] = state;
+        });
+
+        return {
+          success: true,
+          present,
+          states,
+        };
+      } catch (e) {
+        console.error(`Failed to get presence state for room ${roomName}:`, e);
+        return { success: false, present: [] };
+      }
+    });
   }
 
   // #endregion

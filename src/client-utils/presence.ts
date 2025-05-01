@@ -64,10 +64,31 @@ export function createPresence<TState extends Record<string, any>>({
     await client.joinRoom(room);
 
     reconnectHandler = async () => {
+      if (!isInitialized) return;
+
       isInitialized = false;
+
+      // wait a brief moment before publishing state
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 300));
+
       const currentState = read();
       if (currentState) {
-        await publish(currentState);
+        try {
+          // publish will call initialize() internally
+          await publish(currentState);
+        } catch (err) {
+          console.error(
+            "[createPresence] Failed to publish state during reconnect:",
+            err
+          );
+          // attempt to initialize anyway in case of error
+          if (!isInitialized) {
+            await initialize();
+          }
+        }
+      } else {
+        // if no state is found, we still need to initialize
+        await initialize();
       }
     };
 
@@ -76,6 +97,7 @@ export function createPresence<TState extends Record<string, any>>({
     disconnectHandler = () => {
       isInitialized = false;
     };
+
     client.onDisconnect(disconnectHandler);
 
     const handler = createDedupedPresenceHandler<TState>({
