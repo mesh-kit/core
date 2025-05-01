@@ -162,7 +162,7 @@ export class MeshServer extends WebSocketServer {
 
   private applyListeners() {
     this.on("connection", async (socket, req: IncomingMessage) => {
-      const connection = new Connection(socket, req, this.serverOptions);
+      const connection = new Connection(socket, req, this.serverOptions, this);
 
       connection.on("message", (buffer: Buffer) => {
         try {
@@ -522,9 +522,7 @@ export class MeshServer extends WebSocketServer {
 
   private registerBuiltinCommands() {
     // Register a no-op command for connection testing
-    this.exposeCommand("mesh/noop", async () => {
-      return true;
-    });
+    this.exposeCommand("mesh/noop", async () => true);
     this.exposeCommand<
       { channel: string; historyLimit?: number },
       { success: boolean; history?: string[] }
@@ -851,51 +849,54 @@ export class MeshServer extends WebSocketServer {
       }
     );
 
-    this.exposeCommand<{ roomName: string }, boolean>(
-      "mesh/refresh-presence",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        const connectionId = ctx.connection.id;
+    this.exposeCommand<
+      { roomName: string },
+      { success: boolean; error?: string }
+    >("mesh/refresh-presence", async (ctx) => {
+      const { roomName } = ctx.payload;
+      const connectionId = ctx.connection.id;
 
-        try {
-          const isInRoom = await this.isInRoom(roomName, connectionId);
-          if (!isInRoom) {
-            return false;
-          }
+      try {
+        const isInRoom = await this.isInRoom(roomName, connectionId);
+        if (!isInRoom) {
+          return { success: false, error: "CLIENT_NOT_IN_ROOM" };
+        }
 
-          const isTracked = await this.presenceManager.isRoomTracked(
-            roomName,
-            ctx.connection
+        const isTracked = await this.presenceManager.isRoomTracked(
+          roomName,
+          ctx.connection
+        );
+        if (!isTracked) {
+          return { success: false, error: "ROOM_NOT_TRACKED" };
+        }
+
+        const timeoutPromise = new Promise<{
+          success: boolean;
+          error?: string;
+        }>((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Refresh presence operation timed out")),
+            5000
           );
-          if (!isTracked) {
-            return false;
-          }
+        });
 
-          const timeoutPromise = new Promise<boolean>((_, reject) => {
-            setTimeout(
-              () => reject(new Error("Refresh presence operation timed out")),
-              5000
+        const refreshPromise = this.presenceManager
+          .refreshPresence(connectionId, roomName)
+          .then(() => ({ success: true }))
+          .catch((e) => {
+            console.error(
+              `Failed to refresh presence for room ${roomName}:`,
+              e
             );
+            return { success: false, error: "REFRESH_FAILED" };
           });
 
-          const refreshPromise = this.presenceManager
-            .refreshPresence(connectionId, roomName)
-            .then(() => true)
-            .catch((e) => {
-              console.error(
-                `Failed to refresh presence for room ${roomName}:`,
-                e
-              );
-              return false;
-            });
-
-          return await Promise.race([refreshPromise, timeoutPromise]);
-        } catch (e) {
-          console.error(`Failed to refresh presence for room ${roomName}:`, e);
-          return false;
-        }
+        return await Promise.race([refreshPromise, timeoutPromise]);
+      } catch (e) {
+        console.error(`Failed to refresh presence for room ${roomName}:`, e);
+        return { success: false, error: "UNKNOWN_ERROR" };
       }
-    );
+    });
 
     this.exposeCommand<
       { roomName: string },
@@ -941,7 +942,7 @@ export class MeshServer extends WebSocketServer {
 
   // #endregion
 
-  private async cleanupConnection(connection: Connection) {
+  async cleanupConnection(connection: Connection) {
     connection.stopIntervals();
 
     try {
@@ -1022,5 +1023,9 @@ export class MeshServer extends WebSocketServer {
   ): MeshServer {
     this.on("disconnected", callback);
     return this;
+  }
+
+  async dispose() {
+    await this.instanceManager.cleanupDeadInstance(this.instanceId);
   }
 }

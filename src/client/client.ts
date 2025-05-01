@@ -157,21 +157,12 @@ export class MeshClient extends EventEmitter {
       timeSinceActivity > this.options.pingTimeout &&
       this._status === Status.ONLINE
     ) {
-      try {
-        this.command("mesh/noop", {}, 5000).catch(() => {
-          console.log(
-            `[MeshClient] No activity for ${timeSinceActivity}ms, forcing reconnect`
-          );
-          this.forceReconnect();
-        });
-      } catch (e) {
-        // if we get no response from the noop, we'll assume the connection is dead
-        // and force a reconnect
-        console.warn(
-          "[MeshClient] No response to noop command, forcing reconnect"
+      this.command("mesh/noop", {}, 5000).catch(() => {
+        console.log(
+          `[MeshClient] No activity for ${timeSinceActivity}ms. Tried reaching server and failed. Forcing reconnect`
         );
         this.forceReconnect();
-      }
+      });
     }
 
     if (this._status === Status.ONLINE) {
@@ -210,20 +201,40 @@ export class MeshClient extends EventEmitter {
 
         events.forEach((eventName) => {
           doc.addEventListener(eventName, () => {
-            const wasInactive =
-              Date.now() - this._lastActivityTime > this.options.pingTimeout;
+            // const wasInactive =
+            //   Date.now() - this._lastActivityTime > this.options.pingTimeout;
             this._lastActivityTime = Date.now();
 
-            // if visibility changed to visible and we were inactive for too long, reconnect
             if (
               eventName === "visibilitychange" &&
-              doc.visibilityState === "visible" &&
-              wasInactive &&
-              this._status !== Status.CONNECTING &&
-              this._status !== Status.RECONNECTING
+              doc.visibilityState === "visible"
             ) {
-              this.forceReconnect();
+              // send noop. if it fails for any reason, force reconnect
+              this.command("mesh/noop", {}, 5000)
+                .then(() => {
+                  console.log(
+                    "[MeshClient] Tab is visible again, no reconnect needed"
+                  );
+                })
+                .catch(() => {
+                  console.log(
+                    "[MeshClient] Tab is visible again, forcing reconnect"
+                  );
+                  this.forceReconnect();
+                });
             }
+
+            // if visibility changed to visible and we were inactive for too long, reconnect
+            // if (
+            //   eventName === "visibilitychange" &&
+            //   doc.visibilityState === "visible" &&
+            //   wasInactive &&
+            //   this._status !== Status.CONNECTING &&
+            //   this._status !== Status.RECONNECTING
+            // ) {
+            //   console.log("[MeshClient] Tab is visible again, reconnecting...");
+            //   this.forceReconnect();
+            // }
           });
         });
       } catch (e) {
@@ -410,6 +421,89 @@ export class MeshClient extends EventEmitter {
     }
   }
 
+  /**
+   * Helper method to refresh presence for a single room
+   *
+   * @param roomName - The name of the room to refresh presence for
+   * @param attemptRejoin - Whether to attempt rejoining the room if not in room
+   * @returns Promise<boolean> - True if successful, false otherwise
+   * @private
+   */
+  private async _refreshPresenceForRoom(
+    roomName: string,
+    attemptRejoin: boolean = true
+  ): Promise<boolean> {
+    try {
+      if (this._status !== Status.ONLINE) {
+        return false;
+      }
+
+      const result = await this.command(
+        "mesh/refresh-presence",
+        { roomName },
+        5000
+      );
+
+      if (result.success) {
+        this.presenceTrackedRooms.add(roomName);
+        this.startPresenceRefreshTimer();
+        return true;
+      } else {
+        // if somehow we're not in the room (odd, because we think we are), attempt to rejoin once
+        if (result.error === "CLIENT_NOT_IN_ROOM" && attemptRejoin) {
+          console.log(
+            `[MeshClient] Client not in room ${roomName}, attempting to rejoin`
+          );
+
+          if (this.joinedRooms.has(roomName)) {
+            try {
+              const joinResult = await this.command("mesh/join-room", {
+                roomName,
+              });
+
+              if (joinResult.success) {
+                console.log(
+                  `[MeshClient] Successfully rejoined room ${roomName}`
+                );
+
+                // try refreshing presence again after rejoining, but don't attempt to rejoin again
+                return await this._refreshPresenceForRoom(roomName, false);
+              }
+            } catch (joinError) {
+              console.error(
+                `[MeshClient] Failed to rejoin room ${roomName}:`,
+                joinError
+              );
+            }
+          }
+        } else if (result.error === "ROOM_NOT_TRACKED") {
+          console.warn(
+            `[MeshClient] Room ${roomName} is not tracked for presence`
+          );
+        } else if (result.error === "REFRESH_FAILED") {
+          console.error(
+            `[MeshClient] Failed to refresh presence for room ${roomName} (REFRESH_FAILED)`
+          );
+        } else {
+          console.error(
+            `[MeshClient] Unknown error refreshing presence for room ${roomName}: ${result.error}`
+          );
+        }
+        return false;
+      }
+    } catch (error) {
+      console.error(
+        `[MeshClient] Failed to refresh presence for room ${roomName} (UNKNOWN):`,
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Refreshes presence for all tracked rooms
+   * @private
+   */
   private async refreshAllPresence(): Promise<void> {
     if (
       this._status !== Status.ONLINE ||
@@ -422,24 +516,16 @@ export class MeshClient extends EventEmitter {
     const failedRooms = [];
     let successCount = 0;
 
+    console.log(
+      `[MeshClient] Refreshing presence for ${roomsToRefresh.length} rooms (periodic refresh)`
+    );
+
     // first pass
     for (const roomName of roomsToRefresh) {
-      try {
-        const result = await this.command(
-          "mesh/refresh-presence",
-          { roomName },
-          5000
-        );
-        if (result === true) {
-          successCount++;
-        } else {
-          failedRooms.push(roomName);
-        }
-      } catch (error) {
-        console.error(
-          `[MeshClient] Failed to refresh presence for room ${roomName}:`,
-          error
-        );
+      const success = await this._refreshPresenceForRoom(roomName);
+      if (success) {
+        successCount++;
+      } else {
         failedRooms.push(roomName);
       }
 
@@ -452,19 +538,13 @@ export class MeshClient extends EventEmitter {
     // retry failed rooms once
     if (failedRooms.length > 0) {
       for (const roomName of failedRooms) {
-        try {
-          const result = await this.command(
-            "mesh/refresh-presence",
-            { roomName },
-            5000
-          );
-          if (result === true) {
-            successCount++;
-          }
-        } catch (error) {
+        // try one more time but don't attempt to rejoin on this retry
+        const success = await this._refreshPresenceForRoom(roomName, false);
+        if (success) {
+          successCount++;
+        } else {
           console.error(
-            `[MeshClient] Failed to refresh presence for room ${roomName} (retry):`,
-            error
+            `[MeshClient] Failed to refresh presence for room ${roomName} (retry)`
           );
         }
 
@@ -1048,31 +1128,7 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<boolean>} True if successful, false otherwise
    */
   async refreshPresence(roomName: string): Promise<boolean> {
-    try {
-      if (this._status !== Status.ONLINE) {
-        return false;
-      }
-
-      const result = await this.command(
-        "mesh/refresh-presence",
-        { roomName },
-        5000
-      );
-
-      // ensure the room is in the tracked set for future auto-refreshes
-      if (result === true) {
-        this.presenceTrackedRooms.add(roomName);
-        this.startPresenceRefreshTimer();
-      }
-
-      return result === true;
-    } catch (error) {
-      console.error(
-        `[MeshClient] Failed to refresh presence for room ${roomName}:`,
-        error
-      );
-      return false;
-    }
+    return this._refreshPresenceForRoom(roomName);
   }
 
   /**
@@ -1140,7 +1196,13 @@ export class MeshClient extends EventEmitter {
         "mesh/get-presence-state",
         { roomName },
         5000
-      );
+      ).catch((err) => {
+        console.error(
+          `[MeshClient] Failed to get presence state for room ${roomName}:`,
+          err
+        );
+        return { success: false };
+      });
 
       if (!result.success) return false;
 
@@ -1158,7 +1220,7 @@ export class MeshClient extends EventEmitter {
       return true;
     } catch (error) {
       console.error(
-        `[MeshClient] Failed to force presence update for room ${roomName}:`,
+        `[MeshClient] (forcePresenceUpdate) Failed to force presence update for room ${roomName}:`,
         error
       );
       return false;
@@ -1329,7 +1391,7 @@ export class MeshClient extends EventEmitter {
               );
             } else {
               console.warn(
-                `[MeshClient] Failed to refresh presence for room ${roomName}`
+                `[MeshClient] Failed to refresh presence for room ${roomName} (ARGH)`
               );
             }
           } catch (err) {

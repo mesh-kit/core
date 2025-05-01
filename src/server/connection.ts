@@ -9,7 +9,7 @@ import {
 import { Status } from "../common/status";
 import { Latency } from "./latency";
 import { Ping } from "./ping";
-import type { MeshServerOptions } from "./";
+import type { MeshServer, MeshServerOptions } from "./";
 import { getCreateId } from "./utils/ids";
 
 const getId = getCreateId({ init: Date.now(), len: 4 });
@@ -24,17 +24,20 @@ export class Connection extends EventEmitter {
   remoteAddress: string;
   connectionOptions: MeshServerOptions;
   status: Status = Status.ONLINE;
+  server: MeshServer;
 
   constructor(
     socket: WebSocket,
     req: IncomingMessage,
-    options: MeshServerOptions
+    options: MeshServerOptions,
+    server: MeshServer
   ) {
     super();
     this.socket = socket;
     this.id = getId();
     this.remoteAddress = req.socket.remoteAddress!;
     this.connectionOptions = options;
+    this.server = server;
 
     this.applyListeners();
     this.startIntervals();
@@ -67,6 +70,7 @@ export class Connection extends EventEmitter {
         const maxMissedPongs = this.connectionOptions.maxMissedPongs ?? 1;
         if (this.missedPongs > maxMissedPongs) {
           this.close();
+          this.server.cleanupConnection(this);
           return;
         }
       } else {

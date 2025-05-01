@@ -41,144 +41,86 @@ export function createPresence<TState extends Record<string, any>>({
     }>
   ) => void;
 }) {
-  const localStorageKey = `m:presence:${storageKey}`;
+  const storage = createStorageManager<TState>(storageKey);
+  const stateManager = createStateManager<TState>();
+  const resolver = createStateResolver<TState>(stateIdentifier);
+
   let isInitialized = false;
   let reconnectHandler: (() => void) | undefined;
   let disconnectHandler: (() => void) | undefined;
 
-  const stateCache = new Map<string, string | undefined>();
-  const connectionStates = new Map<string, TState | null>();
-
-  const getCacheKey = (
-    connectionId: string,
-    state: TState | null | undefined
-  ) => {
-    if (!state) return connectionId;
-    return `${connectionId}:${JSON.stringify(state)}`;
-  };
-
-  const initialize = async () => {
+  const initialize = async (): Promise<void> => {
     if (isInitialized) return;
     isInitialized = true;
 
     await client.joinRoom(room);
+    setupEventHandlers();
+    await setupPresenceHandler();
+  };
 
-    reconnectHandler = async () => {
-      if (!isInitialized) return;
-
+  const setupEventHandlers = (): void => {
+    reconnectHandler = createReconnectHandler();
+    disconnectHandler = () => {
       isInitialized = false;
-
-      // wait a brief moment before publishing state
-      await new Promise((resolve) => setTimeout(resolve, Math.random() * 300));
-
-      const currentState = read();
-      if (currentState) {
-        try {
-          // publish will call initialize() internally
-          await publish(currentState);
-        } catch (err) {
-          console.error(
-            "[createPresence] Failed to publish state during reconnect:",
-            err
-          );
-          // attempt to initialize anyway in case of error
-          if (!isInitialized) {
-            await initialize();
-          }
-        }
-      } else {
-        // if no state is found, we still need to initialize
-        await initialize();
-      }
+      stateManager.clearAllConnectionStates();
+      resolver.clearCache();
     };
 
     client.onReconnect(reconnectHandler);
-
-    disconnectHandler = () => {
-      isInitialized = false;
-    };
-
     client.onDisconnect(disconnectHandler);
+  };
 
+  const createReconnectHandler = (): (() => Promise<void>) => async () => {
+    if (!isInitialized) return;
+    isInitialized = false;
+
+    // clear state to prevent stale data
+    stateManager.clearAllConnectionStates();
+    resolver.clearCache();
+
+    // jitter to prevent thundering herd
+    await delay(Math.random() * 300);
+
+    const currentState = storage.read();
+
+    try {
+      if (currentState) {
+        await publish(currentState);
+      } else {
+        await initialize();
+      }
+
+      // force a presence update to get the latest state from the server
+      try {
+        await client.forcePresenceUpdate(room);
+      } catch (updateErr) {
+        console.error(
+          "[createPresence] Failed to force presence update during reconnect:",
+          updateErr
+        );
+      }
+    } catch (err) {
+      console.error(
+        "[createPresence] Failed to publish state during reconnect:",
+        err
+      );
+      if (!isInitialized) {
+        await initialize();
+      }
+    }
+  };
+
+  const setupPresenceHandler = async (): Promise<void> => {
     const handler = createDedupedPresenceHandler<TState>({
-      getGroupIdFromState: (state) => {
-        // find the connectionId for this state
-        let targetConnectionId = "";
-        for (const [connId, connState] of connectionStates.entries()) {
-          if (connState === state) {
-            targetConnectionId = connId;
-            break;
-          }
-        }
-
-        if (!targetConnectionId) {
-          return state ? `unknown:${Object.values(state)[0]}` : undefined;
-        }
-
-        // check cache for resolved identifier
-        const cacheKey = getCacheKey(targetConnectionId, state);
-        if (stateCache.has(cacheKey)) {
-          return stateCache.get(cacheKey);
-        }
-
-        const tempId =
-          state?.id || state?.userId || `temp:${targetConnectionId}`;
-
-        Promise.resolve().then(async () => {
-          try {
-            const result = stateIdentifier(state, targetConnectionId);
-            const resolvedId =
-              result instanceof Promise ? await result : result;
-
-            // cache resolved identifier for future use
-            stateCache.set(cacheKey, resolvedId);
-          } catch (error) {
-            console.error(
-              "[createPresence] Error resolving stateIdentifier:",
-              error
-            );
-          }
-        });
-
-        return tempId;
-      },
+      getGroupIdFromState: (state) => resolver.resolveId(state, stateManager),
       onUpdate: (groups) => {
-        const users = Array.from(groups.entries()).map(([id, group]) => ({
-          id,
-          state: group.state,
-          tabCount: group.members.size,
-        }));
-
-        handleLocalStorageSync(groups);
+        const users = formatUsers(groups);
+        syncLocalStorage(groups);
         onUpdate(users);
       },
     });
 
-    const wrappedHandler = ((update: {
-      type: "join" | "leave" | "state";
-      connectionId: string;
-      state?: TState | null;
-    }) => {
-      if (update.type === "state") {
-        connectionStates.set(update.connectionId, update.state ?? null);
-      } else if (update.type === "leave") {
-        connectionStates.delete(update.connectionId);
-      }
-
-      handler(update);
-    }) as any;
-
-    wrappedHandler.init = (
-      present: string[],
-      states: Record<string, TState | null | undefined>
-    ) => {
-      for (const connectionId of present) {
-        const state = states?.[connectionId] ?? null;
-        connectionStates.set(connectionId, state);
-      }
-
-      handler.init(present, states);
-    };
+    const wrappedHandler = createWrappedHandler(handler);
 
     const { present, states } = await client.subscribePresence(
       room,
@@ -190,58 +132,78 @@ export function createPresence<TState extends Record<string, any>>({
       (states as Record<string, TState | null | undefined>) ?? {}
     );
 
-    const initialState = read();
+    const initialState = storage.read();
     if (initialState) {
       await publish(initialState);
     }
   };
 
-  const handleLocalStorageSync = (groups: Map<string, Group<TState>>) => {
+  // wrapped handler that tracks connection states
+  const createWrappedHandler = (handler: any) => {
+    const wrappedHandler = ((update: {
+      type: "join" | "leave" | "state";
+      connectionId: string;
+      state?: TState | null;
+    }) => {
+      if (update.type === "state") {
+        stateManager.setConnectionState(
+          update.connectionId,
+          update.state ?? null
+        );
+      } else if (update.type === "leave") {
+        stateManager.removeConnectionState(update.connectionId);
+      }
+
+      handler(update);
+    }) as any;
+
+    wrappedHandler.init = (
+      present: string[],
+      states: Record<string, TState | null | undefined>
+    ) => {
+      for (const connectionId of present) {
+        const state = states?.[connectionId] ?? null;
+        stateManager.setConnectionState(connectionId, state);
+      }
+
+      handler.init(present, states);
+    };
+
+    return wrappedHandler;
+  };
+
+  // format users from groups for the onUpdate callback
+  const formatUsers = (groups: Map<string, Group<TState>>) =>
+    Array.from(groups.entries()).map(([id, group]) => ({
+      id,
+      state: group.state,
+      tabCount: group.members.size,
+    }));
+
+  // cync local storage with the current user's state
+  const syncLocalStorage = (groups: Map<string, Group<TState>>) => {
     const connId = client.connectionId;
     if (!connId) return;
 
     for (const group of groups.values()) {
       if (group.members.has(connId)) {
-        localStorage.setItem(localStorageKey, JSON.stringify(group.state));
+        storage.write(group.state);
         break;
       }
     }
   };
 
-  /**
-   * Read the presence state from localStorage.
-   *
-   * @returns {TState | null} The presence state from localStorage, or null if not found.
-   */
-  const read = (): TState | null => {
-    try {
-      return JSON.parse(localStorage.getItem(localStorageKey) ?? "null");
-    } catch {
-      return null;
-    }
-  };
-
-  /**
-   * Publish the presence state to the server and store it in localStorage.
-   *
-   * @param state The state to publish.
-   * @returns {Promise<void>} A promise that resolves when the state is published.
-   */
+  // publish state to server and localStorage
   const publish = async (state: TState): Promise<void> => {
     if (!isInitialized) {
       await initialize();
     }
 
-    localStorage.setItem(localStorageKey, JSON.stringify(state));
+    storage.write(state);
     await client.publishPresenceState(room, { state });
   };
 
-  /**
-   * Cleans up resources by removing the reconnect event listener if present and leaving the room.
-   *
-   * @returns {Promise<void>} A promise that resolves when cleanup is complete.
-   * @throws {Error} If an error occurs while leaving the room, the promise will be rejected with the error.
-   */
+  // clean up resources
   const dispose = async (): Promise<void> => {
     if (reconnectHandler) {
       client.removeListener("reconnect", reconnectHandler);
@@ -261,9 +223,156 @@ export function createPresence<TState extends Record<string, any>>({
     console.error("[createPresence] Failed to initialize presence:", err);
   });
 
+  // clear all connection states, resolver cache, and trigger onUpdate
+  const clearConnectionStates = (): void => {
+    stateManager.clearAllConnectionStates();
+    resolver.clearCache();
+    onUpdate([]);
+  };
+
   return {
     publish,
-    read,
+    read: storage.read,
+    clearConnectionStates,
     dispose,
   };
+}
+
+function createStorageManager<TState>(storageKey: string) {
+  const localStorageKey = `m:presence:${storageKey}`;
+
+  return {
+    read: (): TState | null => {
+      try {
+        return JSON.parse(localStorage.getItem(localStorageKey) ?? "null");
+      } catch {
+        return null;
+      }
+    },
+
+    write: (state: TState | null): void => {
+      if (state === null) {
+        localStorage.removeItem(localStorageKey);
+      } else {
+        localStorage.setItem(localStorageKey, JSON.stringify(state));
+      }
+    },
+  };
+}
+
+function createStateManager<TState>() {
+  const connectionStates = new Map<string, TState | null>();
+
+  return {
+    getConnectionStates: () => new Map(connectionStates),
+
+    setConnectionState: (connectionId: string, state: TState | null) => {
+      connectionStates.set(connectionId, state);
+    },
+
+    removeConnectionState: (connectionId: string) => {
+      connectionStates.delete(connectionId);
+    },
+
+    clearAllConnectionStates: () => {
+      connectionStates.clear();
+    },
+
+    findConnectionIdForState: (state: TState | null | undefined): string => {
+      if (!state) return "";
+
+      for (const [connId, connState] of connectionStates.entries()) {
+        if (connState === state) {
+          return connId;
+        }
+      }
+
+      return "";
+    },
+  };
+}
+
+function createStateResolver<TState>(
+  stateIdentifier: (
+    state: TState | null | undefined,
+    connectionId: string
+  ) => string | undefined | Promise<string | undefined>
+) {
+  const stateCache = new Map<string, string | undefined>();
+
+  const getCacheKey = (
+    connectionId: string,
+    state: TState | null | undefined
+  ): string => {
+    if (!state) return connectionId;
+    return `${connectionId}:${JSON.stringify(state)}`;
+  };
+
+  const resolveAsync = async (
+    state: TState | null | undefined,
+    connectionId: string
+  ): Promise<void> => {
+    try {
+      const result = stateIdentifier(state, connectionId);
+      const resolvedId = result instanceof Promise ? await result : result;
+
+      const cacheKey = getCacheKey(connectionId, state);
+      stateCache.set(cacheKey, resolvedId);
+    } catch (error) {
+      console.error("[createPresence] Error resolving stateIdentifier:", error);
+    }
+  };
+
+  return {
+    resolveId: (
+      state: TState | null | undefined,
+      stateManager: ReturnType<typeof createStateManager<TState>>
+    ): string | undefined => {
+      // if state is null or undefined, we can't group it except by connection ID
+      if (!state) {
+        return undefined; // result is __ungrouped__:connectionId
+      }
+
+      const connectionId = stateManager.findConnectionIdForState(state);
+      if (!connectionId) {
+        // if we can't find a connection ID, use a value from the state
+        return `unknown:${Object.values(state)[0]}`;
+      }
+
+      // do we have a cached identifier for this state
+      const cacheKey = getCacheKey(connectionId, state);
+      if (stateCache.has(cacheKey)) {
+        const cachedId = stateCache.get(cacheKey);
+        if (cachedId) {
+          return cachedId;
+        }
+      }
+
+      // always try to resolve using the stateIdentifier function first
+      Promise.resolve().then(() => resolveAsync(state, connectionId));
+
+      // as a fallback, use common properties if available
+      const id = (state as any)?.id;
+      const userId = (state as any)?.userId;
+
+      if (typeof id === "string" && id) {
+        return id;
+      }
+
+      if (typeof userId === "string" && userId) {
+        return userId;
+      }
+
+      // if we can't determine a group ID from the state, use the connection ID
+      return `temp:${connectionId}`;
+    },
+
+    clearCache: () => {
+      stateCache.clear();
+    },
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

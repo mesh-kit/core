@@ -170,9 +170,8 @@ export class InstanceManager {
    * Removes the instance from the registry and deletes its connections set.
    * Also cleans up any connections in the global hash that belong to this instance.
    */
-  private async cleanupDeadInstance(instanceId: string): Promise<void> {
+  async cleanupDeadInstance(instanceId: string): Promise<void> {
     try {
-      // Clean up connections from the instance's connection set
       const connectionsKey = `mesh:connections:${instanceId}`;
       const connections = await this.redis.smembers(connectionsKey);
 
@@ -180,7 +179,7 @@ export class InstanceManager {
         await this.cleanupConnection(connectionId);
       }
 
-      // Also find and clean up any connections in the global hash that belong to this instance
+      // find and clean up any connections in the global hash that belong to this instance
       const allConnections = await this.redis.hgetall("mesh:connections");
       for (const [connectionId, connInstanceId] of Object.entries(
         allConnections
