@@ -69,6 +69,9 @@ export class Connection extends EventEmitter {
         this.missedPongs++;
         const maxMissedPongs = this.connectionOptions.maxMissedPongs ?? 1;
         if (this.missedPongs > maxMissedPongs) {
+          console.log(
+            `[MeshServer] Closing connection (${this.id}) due to missed pongs`
+          );
           this.close();
           this.server.cleanupConnection(this);
           return;
@@ -89,6 +92,7 @@ export class Connection extends EventEmitter {
 
   private applyListeners(): void {
     this.socket.on("close", () => {
+      console.log("[MeshServer] Client's socket closed:", this.id);
       this.status = Status.OFFLINE;
       this.emit("close");
     });

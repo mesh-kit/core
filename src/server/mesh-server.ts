@@ -820,6 +820,45 @@ export class MeshServer extends WebSocketServer {
     });
 
     this.exposeCommand<{ roomName: string }, boolean>(
+      "mesh/republish-presence-state",
+      async (ctx) => {
+        const { roomName } = ctx.payload;
+        const connectionId = ctx.connection.id;
+
+        if (
+          !(await this.presenceManager.isRoomTracked(
+            roomName,
+            ctx.connection
+          )) ||
+          !(await this.isInRoom(roomName, connectionId))
+        ) {
+          return false;
+        }
+
+        try {
+          // get current state
+          const state = await this.presenceManager.getPresenceState(
+            connectionId,
+            roomName
+          );
+          // publish it
+          await this.presenceManager.publishPresenceState(
+            connectionId,
+            roomName,
+            state || {}
+          );
+          return true;
+        } catch (e) {
+          console.error(
+            `Failed to republish presence state for room ${roomName}:`,
+            e
+          );
+          return false;
+        }
+      }
+    );
+
+    this.exposeCommand<{ roomName: string }, boolean>(
       "mesh/clear-presence-state",
       async (ctx) => {
         const { roomName } = ctx.payload;
@@ -943,6 +982,7 @@ export class MeshServer extends WebSocketServer {
   // #endregion
 
   async cleanupConnection(connection: Connection) {
+    console.log("[MeshServer] Cleaning up connection:", connection.id);
     connection.stopIntervals();
 
     try {

@@ -174,13 +174,20 @@ export function createPresence<TState extends Record<string, any>>({
 
   // format users from groups for the onUpdate callback
   const formatUsers = (groups: Map<string, Group<TState>>) =>
-    Array.from(groups.entries()).map(([id, group]) => ({
-      id,
-      state: group.state,
-      tabCount: group.members.size,
-    }));
+    Array.from(groups.entries())
+      .filter(
+        ([id]) =>
+          !id.startsWith("__ungrouped__") &&
+          !id.startsWith("__pending__") &&
+          !id.startsWith("__temp__")
+      )
+      .map(([id, group]) => ({
+        id,
+        state: group.state,
+        tabCount: group.members.size,
+      }));
 
-  // cync local storage with the current user's state
+  // sync local storage with the current user's state
   const syncLocalStorage = (groups: Map<string, Group<TState>>) => {
     const connId = client.connectionId;
     if (!connId) return;
@@ -364,7 +371,7 @@ function createStateResolver<TState>(
       }
 
       // if we can't determine a group ID from the state, use the connection ID
-      return `temp:${connectionId}`;
+      return `__temp__:${connectionId}`;
     },
 
     clearCache: () => {

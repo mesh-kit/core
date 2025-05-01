@@ -215,6 +215,11 @@ export class MeshClient extends EventEmitter {
                   console.log(
                     "[MeshClient] Tab is visible again, no reconnect needed"
                   );
+
+                  // republish my own state?
+                  for (const room of this.joinedRooms.keys()) {
+                    this.republishPresenceState(room);
+                  }
                 })
                 .catch(() => {
                   console.log(
@@ -444,6 +449,11 @@ export class MeshClient extends EventEmitter {
         5000
       );
 
+      console.log(
+        `[MeshClient] refreshPresenceForRoom (${roomName}) result:`,
+        result
+      );
+
       if (result.success) {
         this.presenceTrackedRooms.add(roomName);
         this.startPresenceRefreshTimer();
@@ -452,7 +462,7 @@ export class MeshClient extends EventEmitter {
         // if somehow we're not in the room (odd, because we think we are), attempt to rejoin once
         if (result.error === "CLIENT_NOT_IN_ROOM" && attemptRejoin) {
           console.log(
-            `[MeshClient] Client not in room ${roomName}, attempting to rejoin`
+            `[MeshClient] Client not in room (${roomName}), attempting to rejoin`
           );
 
           if (this.joinedRooms.has(roomName)) {
@@ -1095,6 +1105,20 @@ export class MeshClient extends EventEmitter {
     } catch (error) {
       console.error(
         `[MeshClient] Failed to publish presence state for room ${roomName}:`,
+        error
+      );
+      return false;
+    }
+  }
+
+  async republishPresenceState(roomName: string): Promise<boolean> {
+    try {
+      return await this.command("mesh/republish-presence-state", {
+        roomName,
+      });
+    } catch (error) {
+      console.error(
+        `[MeshClient] Failed to republish presence state for room ${roomName}:`,
         error
       );
       return false;
