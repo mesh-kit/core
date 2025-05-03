@@ -25,7 +25,7 @@ export class PresenceManager {
     (connection: Connection, roomName: string) => Promise<boolean> | boolean
   > = new Map();
   private roomTTLs: Map<ChannelPattern, number> = new Map();
-  private defaultTTL = 120_000; // seconds
+  private defaultTTL = 0; // no expiration
 
   constructor(
     redis: Redis,
@@ -184,8 +184,15 @@ export class PresenceManager {
 
     const pipeline = this.redis.pipeline();
     pipeline.sadd(roomKey, connectionId);
-    const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
-    pipeline.set(connKey, "", "EX", ttlSeconds);
+    
+    // only set expiration if TTL > 0
+    if (ttl > 0) {
+      const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
+      pipeline.set(connKey, "", "EX", ttlSeconds);
+    } else {
+      pipeline.set(connKey, "");
+    }
+    
     await pipeline.exec();
 
     await this.publishPresenceUpdate(roomName, connectionId, "join");
@@ -208,8 +215,14 @@ export class PresenceManager {
   async refreshPresence(connectionId: string, roomName: string): Promise<void> {
     const connKey = this.presenceConnectionKey(roomName, connectionId);
     const ttl = this.getRoomTTL(roomName);
-    const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
-    await this.redis.set(connKey, "", "EX", ttlSeconds);
+    
+    // only set expiration if TTL > 0
+    if (ttl > 0) {
+      const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
+      await this.redis.set(connKey, "", "EX", ttlSeconds);
+    } else {
+      await this.redis.set(connKey, "");
+    }
   }
 
   async getPresentConnections(roomName: string): Promise<string[]> {
