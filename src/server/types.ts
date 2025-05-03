@@ -4,6 +4,7 @@ import type { Operation } from "fast-json-patch";
 import type { Connection } from "./connection";
 import type { Command } from "../common/message";
 import type { MeshContext } from "./mesh-context";
+import { LogLevel } from "../common/logger";
 
 export type SocketMiddleware = (
   context: MeshContext<any>
@@ -58,6 +59,14 @@ export type MeshServerOptions = ServerOptions & {
    * @default 1
    */
   maxMissedPongs?: number;
+  
+  /**
+   * The log level for server-side logs.
+   * Controls which messages are displayed in the console.
+   *
+   * @default LogLevel.ERROR
+   */
+  logLevel?: LogLevel;
 };
 
 export type ChannelPattern = string | RegExp;

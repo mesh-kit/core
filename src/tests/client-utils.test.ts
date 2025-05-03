@@ -208,7 +208,9 @@ describe("createPresence (unified API)", () => {
     onReconnect: vi.fn(),
     onDisconnect: vi.fn(),
     removeListener: vi.fn(),
+    on: vi.fn(),
     leaveRoom: vi.fn().mockResolvedValue({ success: true }),
+    joinedRooms: new Map([["test-room", true]]),
   };
 
   let originalLocalStorage: Storage;

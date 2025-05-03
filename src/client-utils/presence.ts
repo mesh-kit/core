@@ -1,6 +1,7 @@
 import type { MeshClient } from "../client";
 import { createDedupedPresenceHandler } from "./index";
 import type { Group } from "./index";
+import { clientLogger } from "../common/logger";
 
 /**
  * Creates a unified presence helper that combines deduplication and localStorage sync.
@@ -11,6 +12,7 @@ import type { Group } from "./index";
  * @param {string} options.room The name of the room to join and publish to.
  * @param {string} options.storageKey A unique key to use for storing presence state in localStorage.
  * @param {(state: TState | null | undefined, connectionId: string) => string | undefined | Promise<string | undefined>} options.stateIdentifier Function that returns a unique identifier from a state object. Receives the state and connection ID.
+ * @param {(state: TState | null | undefined) => boolean} options.me Function that returns true if the state belongs to the current user.
  * @param {(users: Array<{id: string, state: TState | null, tabCount: number}>) => void} options.onUpdate Called whenever the user list changes.
  * @returns {{
  *   publish(state: TState): Promise<void>,
@@ -48,6 +50,14 @@ export function createPresence<TState extends Record<string, any>>({
   let isInitialized = false;
   let reconnectHandler: (() => void) | undefined;
   let disconnectHandler: (() => void) | undefined;
+
+  client.on("republish", async () => {
+    const state = storage.read();
+    if (!state) return;
+    for (const room of client.joinedRooms.keys()) {
+      await client.publishPresenceState(room, { state });
+    }
+  });
 
   const initialize = async (): Promise<void> => {
     if (isInitialized) return;
@@ -94,14 +104,14 @@ export function createPresence<TState extends Record<string, any>>({
       try {
         await client.forcePresenceUpdate(room);
       } catch (updateErr) {
-        console.error(
-          "[createPresence] Failed to force presence update during reconnect:",
+        clientLogger.error(
+          "Failed to force presence update during reconnect:",
           updateErr
         );
       }
     } catch (err) {
-      console.error(
-        "[createPresence] Failed to publish state during reconnect:",
+      clientLogger.error(
+        "Failed to publish state during reconnect:",
         err
       );
       if (!isInitialized) {
@@ -113,9 +123,46 @@ export function createPresence<TState extends Record<string, any>>({
   const setupPresenceHandler = async (): Promise<void> => {
     const handler = createDedupedPresenceHandler<TState>({
       getGroupIdFromState: (state) => resolver.resolveId(state, stateManager),
-      onUpdate: (groups) => {
+      onUpdate: (groups, connectionId) => {
+        // If we have a valid connectionId, and this update wasn't triggered by us
+        // then one of our other connections has done something that we should sync up with.
+
+        if (client.connectionId && connectionId !== client.connectionId) {
+          // find which group the current connection belongs to
+          let myGroupId: string | undefined;
+          for (const [groupId, group] of groups.entries()) {
+            if (group.members.has(client.connectionId)) {
+              myGroupId = groupId;
+              break;
+            }
+          }
+
+          // find which group the triggering connection belongs to
+          let triggerGroupId: string | undefined;
+          for (const [groupId, group] of groups.entries()) {
+            if (group.members.has(connectionId)) {
+              triggerGroupId = groupId;
+              break;
+            }
+          }
+
+          // only sync if both connections belong to the same group (same user)
+          if (myGroupId && triggerGroupId && myGroupId === triggerGroupId) {
+            const myGroup = groups.get(myGroupId);
+            if (myGroup?.state) {
+              // prevent thundering herd
+              delay(Math.random() * 300).then(() => {
+                client.publishPresenceState(room, {
+                  state: myGroup.state!,
+                  silent: true,
+                });
+                storage.write(myGroup.state!);
+              });
+            }
+          }
+        }
+
         const users = formatUsers(groups);
-        syncLocalStorage(groups);
         onUpdate(users);
       },
     });
@@ -187,25 +234,13 @@ export function createPresence<TState extends Record<string, any>>({
         tabCount: group.members.size,
       }));
 
-  // sync local storage with the current user's state
-  const syncLocalStorage = (groups: Map<string, Group<TState>>) => {
-    const connId = client.connectionId;
-    if (!connId) return;
-
-    for (const group of groups.values()) {
-      if (group.members.has(connId)) {
-        storage.write(group.state);
-        break;
-      }
-    }
-  };
-
   // publish state to server and localStorage
   const publish = async (state: TState): Promise<void> => {
     if (!isInitialized) {
       await initialize();
     }
 
+    clientLogger.info("publish > ", state);
     storage.write(state);
     await client.publishPresenceState(room, { state });
   };
@@ -227,7 +262,7 @@ export function createPresence<TState extends Record<string, any>>({
   };
 
   initialize().catch((err) => {
-    console.error("[createPresence] Failed to initialize presence:", err);
+    clientLogger.error("Failed to initialize presence:", err);
   });
 
   // clear all connection states, resolver cache, and trigger onUpdate
@@ -326,7 +361,7 @@ function createStateResolver<TState>(
       const cacheKey = getCacheKey(connectionId, state);
       stateCache.set(cacheKey, resolvedId);
     } catch (error) {
-      console.error("[createPresence] Error resolving stateIdentifier:", error);
+      clientLogger.error("Error resolving stateIdentifier:", error);
     }
   };
 

@@ -5,6 +5,7 @@ import { Status } from "../client";
 import { parseCommand } from "../common/message";
 import { Connection } from "./connection";
 import { MeshContext } from "./mesh-context";
+import { LogLevel, serverLogger } from "../common/logger";
 import { ConnectionManager } from "./managers/connection";
 import { PresenceManager } from "./managers/presence";
 import { RecordManager } from "./managers/record";
@@ -60,7 +61,13 @@ export class MeshServer extends WebSocketServer {
       pingInterval: opts.pingInterval ?? 30_000,
       latencyInterval: opts.latencyInterval ?? 5_000,
       maxMissedPongs: opts.maxMissedPongs ?? 1,
+      logLevel: opts.logLevel ?? LogLevel.ERROR, // Default to minimal logging
     };
+
+    serverLogger.configure({
+      level: this.serverOptions.logLevel,
+      styling: false,
+    });
 
     this.redisManager = new RedisManager();
     this.redisManager.initialize(opts.redisOptions, (err) =>
@@ -130,7 +137,7 @@ export class MeshServer extends WebSocketServer {
     });
 
     this.on("error", (err) => {
-      console.error(`[MeshServer] Error: ${err}`);
+      serverLogger.error(`Error: ${err}`);
     });
 
     this.on("close", () => {
@@ -784,10 +791,15 @@ export class MeshServer extends WebSocketServer {
     );
 
     this.exposeCommand<
-      { roomName: string; state: Record<string, any>; expireAfter?: number },
+      {
+        roomName: string;
+        state: Record<string, any>;
+        expireAfter?: number;
+        silent?: boolean;
+      },
       boolean
     >("mesh/publish-presence-state", async (ctx) => {
-      const { roomName, state, expireAfter } = ctx.payload;
+      const { roomName, state, expireAfter, silent } = ctx.payload;
       const connectionId = ctx.connection.id;
 
       if (!state) {
@@ -807,7 +819,8 @@ export class MeshServer extends WebSocketServer {
           connectionId,
           roomName,
           state,
-          expireAfter
+          expireAfter,
+          silent
         );
         return true;
       } catch (e) {
@@ -818,45 +831,6 @@ export class MeshServer extends WebSocketServer {
         return false;
       }
     });
-
-    this.exposeCommand<{ roomName: string }, boolean>(
-      "mesh/republish-presence-state",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        const connectionId = ctx.connection.id;
-
-        if (
-          !(await this.presenceManager.isRoomTracked(
-            roomName,
-            ctx.connection
-          )) ||
-          !(await this.isInRoom(roomName, connectionId))
-        ) {
-          return false;
-        }
-
-        try {
-          // get current state
-          const state = await this.presenceManager.getPresenceState(
-            connectionId,
-            roomName
-          );
-          // publish it
-          await this.presenceManager.publishPresenceState(
-            connectionId,
-            roomName,
-            state || {}
-          );
-          return true;
-        } catch (e) {
-          console.error(
-            `Failed to republish presence state for room ${roomName}:`,
-            e
-          );
-          return false;
-        }
-      }
-    );
 
     this.exposeCommand<{ roomName: string }, boolean>(
       "mesh/clear-presence-state",
@@ -887,55 +861,6 @@ export class MeshServer extends WebSocketServer {
         }
       }
     );
-
-    this.exposeCommand<
-      { roomName: string },
-      { success: boolean; error?: string }
-    >("mesh/refresh-presence", async (ctx) => {
-      const { roomName } = ctx.payload;
-      const connectionId = ctx.connection.id;
-
-      try {
-        const isInRoom = await this.isInRoom(roomName, connectionId);
-        if (!isInRoom) {
-          return { success: false, error: "CLIENT_NOT_IN_ROOM" };
-        }
-
-        const isTracked = await this.presenceManager.isRoomTracked(
-          roomName,
-          ctx.connection
-        );
-        if (!isTracked) {
-          return { success: false, error: "ROOM_NOT_TRACKED" };
-        }
-
-        const timeoutPromise = new Promise<{
-          success: boolean;
-          error?: string;
-        }>((_, reject) => {
-          setTimeout(
-            () => reject(new Error("Refresh presence operation timed out")),
-            5000
-          );
-        });
-
-        const refreshPromise = this.presenceManager
-          .refreshPresence(connectionId, roomName)
-          .then(() => ({ success: true }))
-          .catch((e) => {
-            console.error(
-              `Failed to refresh presence for room ${roomName}:`,
-              e
-            );
-            return { success: false, error: "REFRESH_FAILED" };
-          });
-
-        return await Promise.race([refreshPromise, timeoutPromise]);
-      } catch (e) {
-        console.error(`Failed to refresh presence for room ${roomName}:`, e);
-        return { success: false, error: "UNKNOWN_ERROR" };
-      }
-    });
 
     this.exposeCommand<
       { roomName: string },
@@ -982,7 +907,7 @@ export class MeshServer extends WebSocketServer {
   // #endregion
 
   async cleanupConnection(connection: Connection) {
-    console.log("[MeshServer] Cleaning up connection:", connection.id);
+    serverLogger.info("Cleaning up connection:", connection.id);
     connection.stopIntervals();
 
     try {

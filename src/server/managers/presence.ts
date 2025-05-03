@@ -244,7 +244,8 @@ export class PresenceManager {
     connectionId: string,
     roomName: string,
     state: Record<string, any>,
-    expireAfter?: number
+    expireAfter?: number,
+    silent?: boolean
   ): Promise<void> {
     const key = this.presenceStateKey(roomName, connectionId);
     const value = JSON.stringify(state);
@@ -258,6 +259,9 @@ export class PresenceManager {
     }
 
     await pipeline.exec();
+
+    if (silent) return;
+
     await this.publishPresenceStateUpdate(roomName, connectionId, state);
   }
 

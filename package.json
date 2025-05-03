@@ -1,6 +1,6 @@
 {
   "name": "@mesh-kit/core",
-  "version": "1.0.88",
+  "version": "1.0.118",
   "type": "module",
   "exports": {
     "./server": {

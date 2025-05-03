@@ -11,13 +11,13 @@ export interface Group<TState> {
  * @template TState The shape of your presence state.
  * @param {Object} options - Configuration options for the deduplicated presence handler.
  * @param {(state: TState) => string | undefined} options.getGroupIdFromState - A function that returns the group ID for a given state.
- * @param {(groups: Map<string, { state: TState, members: Set<string> }>) => void} options.onUpdate - Called whenever the deduplicated group list changes.
+ * @param {(groups: Map<string, { state: TState, members: Set<string> }>, connectionId: string) => void} options.onUpdate - Called whenever the deduplicated group list changes.
  * @returns {Object} A presence update handler with an `.init()` method to hydrate initial state.
  *
  * @example
  * const handler = createDedupedPresenceHandler({
  *   getGroupIdFromState: (state) => state?.userId,
- *   onUpdate: (groups) => {
+ *   onUpdate: (groups, connectionId) => {
  *     // Use groups Map<string, { state, members }>
  *   },
  * });
@@ -27,12 +27,12 @@ export interface Group<TState> {
  */
 export function createDedupedPresenceHandler<TState>(config: {
   getGroupIdFromState: (state: TState | null | undefined) => string | undefined;
-  onUpdate: (groups: Map<string, Group<TState>>) => void;
+  onUpdate: (groups: Map<string, Group<TState>>, connectionId: string) => void;
 }) {
   const groups = new Map<string, Group<TState>>();
   const memberToGroup = new Map<string, string>();
 
-  const update = () => config.onUpdate(new Map(groups));
+  const update = (connectionId: string) => config.onUpdate(new Map(groups), connectionId);
 
   function join(connectionId: string) {
     const groupId = `__pending__:${connectionId}`;
@@ -43,7 +43,7 @@ export function createDedupedPresenceHandler<TState>(config: {
     group.members.add(connectionId);
     groups.set(groupId, group);
     memberToGroup.set(connectionId, groupId);
-    update();
+    update(connectionId);
   }
 
   function leave(connectionId: string) {
@@ -58,7 +58,7 @@ export function createDedupedPresenceHandler<TState>(config: {
       groups.delete(groupId);
     }
 
-    update();
+    update(connectionId);
   }
 
   function updateState(connectionId: string, state: TState | null) {
@@ -70,7 +70,7 @@ export function createDedupedPresenceHandler<TState>(config: {
       const group = groups.get(newGroupId);
       if (group) {
         group.state = state;
-        update();
+        update(connectionId);
       }
       return;
     }
@@ -92,7 +92,7 @@ export function createDedupedPresenceHandler<TState>(config: {
     groups.set(newGroupId, newGroup);
     memberToGroup.set(connectionId, newGroupId);
 
-    update();
+    update(connectionId);
   }
 
   type Update =

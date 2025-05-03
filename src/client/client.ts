@@ -3,6 +3,7 @@ import { CodeError } from "../common/codeerror";
 import { Status } from "../common/status";
 import { Connection } from "./connection";
 import type { Operation } from "fast-json-patch";
+import { LogLevel, clientLogger } from "../common/logger";
 
 export { Status } from "../common/status";
 
@@ -67,6 +68,14 @@ export type MeshClientOptions = Partial<{
    * @default Infinity
    */
   maxReconnectAttempts: number;
+
+  /**
+   * The log level for client-side logs.
+   * Controls which messages are displayed in the console.
+   *
+   * @default LogLevel.ERROR
+   */
+  logLevel: LogLevel;
 }>;
 
 export class MeshClient extends EventEmitter {
@@ -104,11 +113,7 @@ export class MeshClient extends EventEmitter {
     }) => void | Promise<void>
   > = new Map();
 
-  private presenceTrackedRooms: Set<string> = new Set();
-  private presenceRefreshTimer: ReturnType<typeof setInterval> | undefined;
-  private presenceRefreshInterval = 15000;
-
-  private joinedRooms: Map<
+  joinedRooms: Map<
     string, // roomName
     PresenceUpdateCallback | undefined
   > = new Map();
@@ -131,7 +136,13 @@ export class MeshClient extends EventEmitter {
       shouldReconnect: opts.shouldReconnect ?? true,
       reconnectInterval: opts.reconnectInterval ?? 2_000,
       maxReconnectAttempts: opts.maxReconnectAttempts ?? Infinity,
+      logLevel: opts.logLevel ?? LogLevel.ERROR,
     };
+
+    clientLogger.configure({
+      level: this.options.logLevel,
+      styling: true,
+    });
 
     this.setupConnectionEvents();
     this.setupVisibilityHandling();
@@ -158,8 +169,8 @@ export class MeshClient extends EventEmitter {
       this._status === Status.ONLINE
     ) {
       this.command("mesh/noop", {}, 5000).catch(() => {
-        console.log(
-          `[MeshClient] No activity for ${timeSinceActivity}ms. Tried reaching server and failed. Forcing reconnect`
+        clientLogger.info(
+          `No activity for ${timeSinceActivity}ms. Tried reaching server and failed. Forcing reconnect`
         );
         this.forceReconnect();
       });
@@ -212,19 +223,14 @@ export class MeshClient extends EventEmitter {
               // send noop. if it fails for any reason, force reconnect
               this.command("mesh/noop", {}, 5000)
                 .then(() => {
-                  console.log(
-                    "[MeshClient] Tab is visible again, no reconnect needed"
+                  clientLogger.info(
+                    "Tab is visible again, no reconnect needed"
                   );
 
-                  // republish my own state?
-                  for (const room of this.joinedRooms.keys()) {
-                    this.republishPresenceState(room);
-                  }
+                  this.emit("republish");
                 })
                 .catch(() => {
-                  console.log(
-                    "[MeshClient] Tab is visible again, forcing reconnect"
-                  );
+                  clientLogger.info("Tab is visible again, forcing reconnect");
                   this.forceReconnect();
                 });
             }
@@ -237,7 +243,7 @@ export class MeshClient extends EventEmitter {
             //   this._status !== Status.CONNECTING &&
             //   this._status !== Status.RECONNECTING
             // ) {
-            //   console.log("[MeshClient] Tab is visible again, reconnecting...");
+            //   console.log("[mesh] Tab is visible again, reconnecting...");
             //   this.forceReconnect();
             // }
           });
@@ -405,169 +411,6 @@ export class MeshClient extends EventEmitter {
         this.checkPingStatus();
       }, this.options.pingTimeout);
     }
-
-    this.startPresenceRefreshTimer();
-  }
-
-  private startPresenceRefreshTimer(): void {
-    if (this.presenceRefreshTimer) {
-      return;
-    }
-
-    this.presenceRefreshTimer = setInterval(() => {
-      this.refreshAllPresence();
-    }, this.presenceRefreshInterval);
-  }
-
-  private stopPresenceRefreshTimer(): void {
-    if (this.presenceRefreshTimer) {
-      clearInterval(this.presenceRefreshTimer);
-      this.presenceRefreshTimer = undefined;
-    }
-  }
-
-  /**
-   * Helper method to refresh presence for a single room
-   *
-   * @param roomName - The name of the room to refresh presence for
-   * @param attemptRejoin - Whether to attempt rejoining the room if not in room
-   * @returns Promise<boolean> - True if successful, false otherwise
-   * @private
-   */
-  private async _refreshPresenceForRoom(
-    roomName: string,
-    attemptRejoin: boolean = true
-  ): Promise<boolean> {
-    try {
-      if (this._status !== Status.ONLINE) {
-        return false;
-      }
-
-      const result = await this.command(
-        "mesh/refresh-presence",
-        { roomName },
-        5000
-      );
-
-      console.log(
-        `[MeshClient] refreshPresenceForRoom (${roomName}) result:`,
-        result
-      );
-
-      if (result.success) {
-        this.presenceTrackedRooms.add(roomName);
-        this.startPresenceRefreshTimer();
-        return true;
-      } else {
-        // if somehow we're not in the room (odd, because we think we are), attempt to rejoin once
-        if (result.error === "CLIENT_NOT_IN_ROOM" && attemptRejoin) {
-          console.log(
-            `[MeshClient] Client not in room (${roomName}), attempting to rejoin`
-          );
-
-          if (this.joinedRooms.has(roomName)) {
-            try {
-              const joinResult = await this.command("mesh/join-room", {
-                roomName,
-              });
-
-              if (joinResult.success) {
-                console.log(
-                  `[MeshClient] Successfully rejoined room ${roomName}`
-                );
-
-                // try refreshing presence again after rejoining, but don't attempt to rejoin again
-                return await this._refreshPresenceForRoom(roomName, false);
-              }
-            } catch (joinError) {
-              console.error(
-                `[MeshClient] Failed to rejoin room ${roomName}:`,
-                joinError
-              );
-            }
-          }
-        } else if (result.error === "ROOM_NOT_TRACKED") {
-          console.warn(
-            `[MeshClient] Room ${roomName} is not tracked for presence`
-          );
-        } else if (result.error === "REFRESH_FAILED") {
-          console.error(
-            `[MeshClient] Failed to refresh presence for room ${roomName} (REFRESH_FAILED)`
-          );
-        } else {
-          console.error(
-            `[MeshClient] Unknown error refreshing presence for room ${roomName}: ${result.error}`
-          );
-        }
-        return false;
-      }
-    } catch (error) {
-      console.error(
-        `[MeshClient] Failed to refresh presence for room ${roomName} (UNKNOWN):`,
-        error
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Refreshes presence for all tracked rooms
-   * @private
-   */
-  private async refreshAllPresence(): Promise<void> {
-    if (
-      this._status !== Status.ONLINE ||
-      this.presenceTrackedRooms.size === 0
-    ) {
-      return;
-    }
-
-    const roomsToRefresh = Array.from(this.presenceTrackedRooms);
-    const failedRooms = [];
-    let successCount = 0;
-
-    console.log(
-      `[MeshClient] Refreshing presence for ${roomsToRefresh.length} rooms (periodic refresh)`
-    );
-
-    // first pass
-    for (const roomName of roomsToRefresh) {
-      const success = await this._refreshPresenceForRoom(roomName);
-      if (success) {
-        successCount++;
-      } else {
-        failedRooms.push(roomName);
-      }
-
-      // small delay between rooms
-      if (roomsToRefresh.length > 1) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
-
-    // retry failed rooms once
-    if (failedRooms.length > 0) {
-      for (const roomName of failedRooms) {
-        // try one more time but don't attempt to rejoin on this retry
-        const success = await this._refreshPresenceForRoom(roomName, false);
-        if (success) {
-          successCount++;
-        } else {
-          console.error(
-            `[MeshClient] Failed to refresh presence for room ${roomName} (retry)`
-          );
-        }
-
-        // retry delay
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
-
-    if (successCount < roomsToRefresh.length) {
-      console.warn(
-        `[MeshClient] Refreshed presence for ${successCount}/${roomsToRefresh.length} rooms`
-      );
-    }
   }
 
   private checkPingStatus(): void {
@@ -575,9 +418,7 @@ export class MeshClient extends EventEmitter {
 
     if (this.missedPings > this.options.maxMissedPings) {
       if (this.options.shouldReconnect) {
-        console.warn(
-          `[MeshClient] Missed ${this.missedPings} pings, reconnecting...`
-        );
+        clientLogger.warn(`Missed ${this.missedPings} pings, reconnecting...`);
         this.reconnect();
       }
     } else {
@@ -599,8 +440,6 @@ export class MeshClient extends EventEmitter {
     if (this._status === Status.OFFLINE) {
       return Promise.resolve();
     }
-
-    this.stopPresenceRefreshTimer();
 
     return new Promise((resolve) => {
       const onClose = () => {
@@ -633,8 +472,6 @@ export class MeshClient extends EventEmitter {
     clearTimeout(this.pingTimeout);
     this.pingTimeout = undefined;
     this.missedPings = 0;
-
-    this.stopPresenceRefreshTimer();
 
     let attempt = 1;
 
@@ -744,10 +581,7 @@ export class MeshClient extends EventEmitter {
       try {
         await subscription.callback(message);
       } catch (error) {
-        console.error(
-          `[MeshClient] Error in channel callback for ${channel}:`,
-          error
-        );
+        clientLogger.error(`Error in channel callback for ${channel}:`, error);
       }
     }
   }
@@ -768,8 +602,8 @@ export class MeshClient extends EventEmitter {
     if (patch) {
       if (version !== subscription.localVersion + 1) {
         // desync
-        console.warn(
-          `[MeshClient] Desync detected for record ${recordId}. Expected version ${
+        clientLogger.warn(
+          `Desync detected for record ${recordId}. Expected version ${
             subscription.localVersion + 1
           }, got ${version}. Resubscribing to request full record.`
         );
@@ -890,10 +724,7 @@ export class MeshClient extends EventEmitter {
         version: result.version ?? 0,
       };
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to subscribe to record ${recordId}:`,
-        error
-      );
+      clientLogger.error(`Failed to subscribe to record ${recordId}:`, error);
       return { success: false, record: null, version: 0 };
     }
   }
@@ -914,8 +745,8 @@ export class MeshClient extends EventEmitter {
       }
       return success;
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to unsubscribe from record ${recordId}:`,
+      clientLogger.error(
+        `Failed to unsubscribe from record ${recordId}:`,
         error
       );
       return false;
@@ -937,8 +768,8 @@ export class MeshClient extends EventEmitter {
       });
       return result.success === true;
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to publish update for record ${recordId}:`,
+      clientLogger.error(
+        `Failed to publish update for record ${recordId}:`,
         error
       );
       return false;
@@ -966,10 +797,6 @@ export class MeshClient extends EventEmitter {
 
     this.joinedRooms.set(roomName, onPresenceUpdate);
 
-    // ensures presence is refreshed even without a presence subscription
-    this.presenceTrackedRooms.add(roomName);
-    this.startPresenceRefreshTimer();
-
     if (!onPresenceUpdate) {
       return { success: true, present: joinResult.present || [] };
     }
@@ -993,11 +820,6 @@ export class MeshClient extends EventEmitter {
 
     if (result.success) {
       this.joinedRooms.delete(roomName);
-      this.presenceTrackedRooms.delete(roomName);
-
-      if (this.presenceTrackedRooms.size === 0) {
-        this.stopPresenceRefreshTimer();
-      }
 
       if (this.presenceSubscriptions.has(roomName)) {
         await this.unsubscribePresence(roomName);
@@ -1029,8 +851,6 @@ export class MeshClient extends EventEmitter {
 
       if (result.success) {
         this.presenceSubscriptions.set(roomName, callback as any);
-        this.presenceTrackedRooms.add(roomName);
-        this.startPresenceRefreshTimer();
 
         if (result.present && result.present.length > 0) {
           await callback(result as any);
@@ -1043,8 +863,8 @@ export class MeshClient extends EventEmitter {
         states: result.states || {},
       };
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to subscribe to presence for room ${roomName}:`,
+      clientLogger.error(
+        `Failed to subscribe to presence for room ${roomName}:`,
         error
       );
       return { success: false, present: [] };
@@ -1064,16 +884,11 @@ export class MeshClient extends EventEmitter {
       });
       if (success) {
         this.presenceSubscriptions.delete(roomName);
-        this.presenceTrackedRooms.delete(roomName);
-
-        if (this.presenceTrackedRooms.size === 0) {
-          this.stopPresenceRefreshTimer();
-        }
       }
       return success;
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to unsubscribe from presence for room ${roomName}:`,
+      clientLogger.error(
+        `Failed to unsubscribe from presence for room ${roomName}:`,
         error
       );
       return false;
@@ -1094,31 +909,23 @@ export class MeshClient extends EventEmitter {
     options: {
       state: Record<string, any>;
       expireAfter?: number; // optional, in milliseconds
+      silent?: boolean; // optional, if true, don't emit presence updates
     }
   ): Promise<boolean> {
+    clientLogger.info(
+      `publishPresenceState (silent=${Boolean(options.silent)}): ${roomName}`,
+      options.state
+    );
     try {
       return await this.command("mesh/publish-presence-state", {
         roomName,
         state: options.state,
         expireAfter: options.expireAfter,
+        silent: options.silent,
       });
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to publish presence state for room ${roomName}:`,
-        error
-      );
-      return false;
-    }
-  }
-
-  async republishPresenceState(roomName: string): Promise<boolean> {
-    try {
-      return await this.command("mesh/republish-presence-state", {
-        roomName,
-      });
-    } catch (error) {
-      console.error(
-        `[MeshClient] Failed to republish presence state for room ${roomName}:`,
+      clientLogger.error(
+        `Failed to publish presence state for room ${roomName}:`,
         error
       );
       return false;
@@ -1137,8 +944,8 @@ export class MeshClient extends EventEmitter {
         roomName,
       });
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to clear presence state for room ${roomName}:`,
+      clientLogger.error(
+        `Failed to clear presence state for room ${roomName}:`,
         error
       );
       return false;
@@ -1151,9 +958,9 @@ export class MeshClient extends EventEmitter {
    * @param {string} roomName - The name of the room to refresh presence for
    * @returns {Promise<boolean>} True if successful, false otherwise
    */
-  async refreshPresence(roomName: string): Promise<boolean> {
-    return this._refreshPresenceForRoom(roomName);
-  }
+  // async refreshPresence(roomName: string): Promise<boolean> {
+  //   return this._refreshPresenceForRoom(roomName);
+  // }
 
   /**
    * Gets metadata for a specific room.
@@ -1168,10 +975,7 @@ export class MeshClient extends EventEmitter {
       });
       return result.metadata;
     } catch (error) {
-      console.error(
-        `[MeshClient] Failed to get metadata for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`Failed to get metadata for room ${roomName}:`, error);
       return null;
     }
   }
@@ -1195,8 +999,8 @@ export class MeshClient extends EventEmitter {
       }
     } catch (error) {
       const idText = connectionId ? ` ${connectionId}` : "";
-      console.error(
-        `[MeshClient] Failed to get metadata for connection${idText}:`,
+      clientLogger.error(
+        `Failed to get metadata for connection${idText}:`,
         error
       );
       return null;
@@ -1221,8 +1025,8 @@ export class MeshClient extends EventEmitter {
         { roomName },
         5000
       ).catch((err) => {
-        console.error(
-          `[MeshClient] Failed to get presence state for room ${roomName}:`,
+        clientLogger.error(
+          `Failed to get presence state for room ${roomName}:`,
           err
         );
         return { success: false };
@@ -1243,8 +1047,8 @@ export class MeshClient extends EventEmitter {
 
       return true;
     } catch (error) {
-      console.error(
-        `[MeshClient] (forcePresenceUpdate) Failed to force presence update for room ${roomName}:`,
+      clientLogger.error(
+        `(forcePresenceUpdate) Failed to force presence update for room ${roomName}:`,
         error
       );
       return false;
@@ -1308,23 +1112,18 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<void>} A promise that resolves when all resubscriptions are complete.
    */
   private async resubscribeAll(): Promise<void> {
-    console.log(
-      "[MeshClient] Resubscribing to all subscriptions after reconnect"
-    );
+    clientLogger.info("Resubscribing to all subscriptions after reconnect");
 
     try {
       // rooms
       const roomPromises = Array.from(this.joinedRooms.entries()).map(
         async ([roomName, presenceCallback]) => {
           try {
-            console.log(`[MeshClient] Rejoining room: ${roomName}`);
+            clientLogger.info(`Rejoining room: ${roomName}`);
             await this.joinRoom(roomName, presenceCallback);
             return { roomName, success: true };
           } catch (error) {
-            console.error(
-              `[MeshClient] Failed to rejoin room ${roomName}:`,
-              error
-            );
+            clientLogger.error(`Failed to rejoin room ${roomName}:`, error);
             return { roomName, success: false };
           }
         }
@@ -1344,20 +1143,20 @@ export class MeshClient extends EventEmitter {
             ).value.roomName
         );
 
-      console.log(
-        `[MeshClient] Rejoined ${successfulRooms.length}/${roomPromises.length} rooms`
+      clientLogger.info(
+        `Rejoined ${successfulRooms.length}/${roomPromises.length} rooms`
       );
 
       // records
       const recordPromises = Array.from(this.recordSubscriptions.entries()).map(
         async ([recordId, { callback, mode }]) => {
           try {
-            console.log(`[MeshClient] Resubscribing to record: ${recordId}`);
+            clientLogger.info(`Resubscribing to record: ${recordId}`);
             await this.subscribeRecord(recordId, callback, { mode });
             return true;
           } catch (error) {
-            console.error(
-              `[MeshClient] Failed to resubscribe to record ${recordId}:`,
+            clientLogger.error(
+              `Failed to resubscribe to record ${recordId}:`,
               error
             );
             return false;
@@ -1370,12 +1169,12 @@ export class MeshClient extends EventEmitter {
         this.channelSubscriptions.entries()
       ).map(async ([channel, { callback, historyLimit }]) => {
         try {
-          console.log(`[MeshClient] Resubscribing to channel: ${channel}`);
+          clientLogger.info(`Resubscribing to channel: ${channel}`);
           await this.subscribeChannel(channel, callback, { historyLimit });
           return true;
         } catch (error) {
-          console.error(
-            `[MeshClient] Failed to resubscribe to channel ${channel}:`,
+          clientLogger.error(
+            `Failed to resubscribe to channel ${channel}:`,
             error
           );
           return false;
@@ -1393,34 +1192,34 @@ export class MeshClient extends EventEmitter {
         (r) => r.status === "fulfilled" && r.value === true
       ).length;
 
-      console.log(
-        `[MeshClient] Resubscribed to ${
-          successfulRooms.length + successCount
-        }/${roomPromises.length + results.length} total subscriptions`
+      clientLogger.info(
+        `Resubscribed to ${successfulRooms.length + successCount}/${
+          roomPromises.length + results.length
+        } total subscriptions`
       );
 
       // after all resubscriptions are complete,
       // force a presence update for each room
       if (successfulRooms.length > 0) {
-        console.log(
-          "[MeshClient] Forcing presence update for all rooms after reconnect"
+        clientLogger.info(
+          "Forcing presence update for all rooms after reconnect"
         );
 
         for (const roomName of successfulRooms) {
           try {
             const updated = await this.forcePresenceUpdate(roomName);
             if (updated) {
-              console.log(
-                `[MeshClient] Successfully refreshed presence for room ${roomName}`
+              clientLogger.info(
+                `Successfully refreshed presence for room ${roomName}`
               );
             } else {
-              console.warn(
-                `[MeshClient] Failed to refresh presence for room ${roomName} (ARGH)`
+              clientLogger.warn(
+                `Failed to refresh presence for room ${roomName} (ARGH)`
               );
             }
           } catch (err) {
-            console.error(
-              `[MeshClient] Error refreshing presence for room ${roomName}:`,
+            clientLogger.error(
+              `Error refreshing presence for room ${roomName}:`,
               err
             );
           }
@@ -1430,7 +1229,7 @@ export class MeshClient extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error("[MeshClient] Error during resubscription:", error);
+      clientLogger.error("Error during resubscription:", error);
     }
   }
 }

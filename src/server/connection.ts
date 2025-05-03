@@ -11,6 +11,7 @@ import { Latency } from "./latency";
 import { Ping } from "./ping";
 import type { MeshServer, MeshServerOptions } from "./";
 import { getCreateId } from "./utils/ids";
+import { serverLogger } from "../common/logger";
 
 const getId = getCreateId({ init: Date.now(), len: 4 });
 
@@ -69,8 +70,8 @@ export class Connection extends EventEmitter {
         this.missedPongs++;
         const maxMissedPongs = this.connectionOptions.maxMissedPongs ?? 1;
         if (this.missedPongs > maxMissedPongs) {
-          console.log(
-            `[MeshServer] Closing connection (${this.id}) due to missed pongs`
+          serverLogger.info(
+            `Closing connection (${this.id}) due to missed pongs`
           );
           this.close();
           this.server.cleanupConnection(this);
@@ -92,7 +93,7 @@ export class Connection extends EventEmitter {
 
   private applyListeners(): void {
     this.socket.on("close", () => {
-      console.log("[MeshServer] Client's socket closed:", this.id);
+      serverLogger.info("Client's socket closed:", this.id);
       this.status = Status.OFFLINE;
       this.emit("close");
     });
