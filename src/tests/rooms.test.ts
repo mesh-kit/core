@@ -96,6 +96,32 @@ describe("MeshServer", () => {
     expect(await server.roomManager.getMetadata(room1)).toBeNull();
   });
 
+  test("room metadata filtering", async () => {
+    const room1 = "filter-room-1";
+    const room2 = "filter-room-2";
+    const room3 = "filter-room-3";
+
+    await server.roomManager.setMetadata(room1, { type: "public", maxUsers: 10 });
+    await server.roomManager.setMetadata(room2, { type: "private", maxUsers: 5 });
+    await server.roomManager.setMetadata(room3, { type: "public", maxUsers: 20 });
+
+    // filter by type
+    const publicRooms = await server.roomManager.getAllMetadata((roomName, metadata) => metadata.type === "public");
+
+    expect(Object.keys(publicRooms).length).toBe(2);
+    expect(publicRooms).toHaveProperty(room1);
+    expect(publicRooms).toHaveProperty(room3);
+    expect(publicRooms).not.toHaveProperty(room2);
+
+    // filter by maxUsers
+    const largeRooms = await server.roomManager.getAllMetadata((roomName, metadata) => metadata.maxUsers > 10);
+
+    expect(Object.keys(largeRooms).length).toBe(1);
+    expect(largeRooms).toHaveProperty(room3);
+    expect(largeRooms).not.toHaveProperty(room1);
+    expect(largeRooms).not.toHaveProperty(room2);
+  });
+
   test("getAllRooms", async () => {
     await clientA.connect();
     await clientB.connect();

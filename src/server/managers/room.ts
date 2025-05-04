@@ -203,11 +203,14 @@ export class RoomManager {
    * Retrieves and returns all room metadata stored in Redis.
    * Fetches all keys matching the pattern "mesh:roommeta:*", retrieves their "data" fields,
    * parses them as JSON, and returns an object mapping room names to their metadata.
+   * Optionally filters the results based on the provided filter function.
    *
+   * @param {Function} filterFn - Optional filter function that takes a room name and metadata,
+   *                             and returns a boolean indicating whether to include the room.
    * @returns {Promise<{ [roomName: string]: any }>} A promise that resolves to an object mapping room names to their metadata.
    * @throws {SyntaxError} If the stored metadata cannot be parsed as JSON, an error is logged and the room is omitted from the result.
    */
-  async getAllMetadata(): Promise<{ [roomName: string]: any }> {
+  async getAllMetadata(filterFn?: (roomName: string, metadata: any) => boolean): Promise<{ [roomName: string]: any }> {
     const keys = await this.redis.keys("mesh:roommeta:*");
     const metadata: { [roomName: string]: any } = {};
 
@@ -224,7 +227,10 @@ export class RoomManager {
       const data = results?.[index]?.[1];
       if (data) {
         try {
-          metadata[roomName] = JSON.parse(data as string);
+          const parsedData = JSON.parse(data as string);
+          if (!filterFn || filterFn(roomName, parsedData)) {
+            metadata[roomName] = parsedData;
+          }
         } catch (e) {
           console.error(`Failed to parse metadata for room ${roomName}:`, e);
         }
