@@ -44,15 +44,9 @@ export class InstanceManager {
     await this.registerInstance();
     await this.updateHeartbeat();
 
-    this.heartbeatInterval = setInterval(
-      () => this.updateHeartbeat(),
-      this.heartbeatFrequency
-    );
+    this.heartbeatInterval = setInterval(() => this.updateHeartbeat(), this.heartbeatFrequency);
 
-    this.cleanupInterval = setInterval(
-      () => this.performCleanup(),
-      this.cleanupFrequency
-    );
+    this.cleanupInterval = setInterval(() => this.performCleanup(), this.cleanupFrequency);
   }
 
   async stop(): Promise<void> {
@@ -98,13 +92,7 @@ export class InstanceManager {
    */
   private async acquireCleanupLock(): Promise<boolean> {
     const lockKey = "mesh:cleanup:lock";
-    const result = await this.redis.set(
-      lockKey,
-      this.instanceId,
-      "EX",
-      this.cleanupLockTTL,
-      "NX"
-    );
+    const result = await this.redis.set(lockKey, this.instanceId, "EX", this.cleanupLockTTL, "NX");
     return result === "OK";
   }
 
@@ -141,10 +129,7 @@ export class InstanceManager {
 
       // merge these, because an instance may no longer exist, but still be referenced
       // by a connection that hasn't been cleaned up yet
-      const instanceIds = new Set([
-        ...registeredInstances,
-        ...Object.values(allConnections),
-      ]);
+      const instanceIds = new Set([...registeredInstances, ...Object.values(allConnections)]);
 
       for (const instanceId of instanceIds) {
         if (instanceId === this.instanceId) continue;
@@ -181,9 +166,7 @@ export class InstanceManager {
 
       // find and clean up any connections in the global hash that belong to this instance
       const allConnections = await this.redis.hgetall("mesh:connections");
-      for (const [connectionId, connInstanceId] of Object.entries(
-        allConnections
-      )) {
+      for (const [connectionId, connInstanceId] of Object.entries(allConnections)) {
         if (connInstanceId === instanceId) {
           await this.cleanupConnection(connectionId);
         }

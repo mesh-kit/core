@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient, Status } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -58,9 +56,7 @@ describe("MeshClient", () => {
 
     await client.connect();
 
-    await expect(
-      client.command("never-responds", "Should time out", 100)
-    ).rejects.toThrow(/timed out/);
+    await expect(client.command("never-responds", "Should time out", 100)).rejects.toThrow(/timed out/);
   }, 2000);
 
   test("an unknown command should return an error object", async () => {
@@ -247,9 +243,7 @@ describe("MeshClient", () => {
     const metadata = { user: "test-user", permissions: ["read", "write"] };
     await server.connectionManager.setMetadata(clientConnection, metadata);
 
-    const retrievedMetadata = await client.getConnectionMetadata(
-      clientConnection.id
-    );
+    const retrievedMetadata = await client.getConnectionMetadata(clientConnection.id);
     expect(retrievedMetadata).toEqual(metadata);
   });
 
@@ -268,11 +262,7 @@ describe("MeshClient", () => {
     const reconnectSpy = vi.fn();
     const reconnectFailedSpy = vi.fn();
 
-    client
-      .onConnect(connectSpy)
-      .onDisconnect(disconnectSpy)
-      .onReconnect(reconnectSpy)
-      .onReconnectFailed(reconnectFailedSpy);
+    client.onConnect(connectSpy).onDisconnect(disconnectSpy).onReconnect(reconnectSpy).onReconnectFailed(reconnectFailedSpy);
 
     await client.connect();
     expect(connectSpy).toHaveBeenCalled();

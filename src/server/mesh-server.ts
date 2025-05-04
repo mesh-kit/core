@@ -17,11 +17,7 @@ import { PubSubManager } from "./managers/pubsub";
 import { RecordSubscriptionManager } from "./managers/record-subscription";
 import { RedisManager } from "./managers/redis";
 import { InstanceManager } from "./managers/instance";
-import type {
-  ChannelPattern,
-  MeshServerOptions,
-  SocketMiddleware,
-} from "./types";
+import type { ChannelPattern, MeshServerOptions, SocketMiddleware } from "./types";
 import { PersistenceManager } from "./managers/persistence";
 import type { PersistenceOptions } from "./persistence/types";
 import { PUB_SUB_CHANNEL_PREFIX } from "./utils/constants";
@@ -73,70 +69,37 @@ export class MeshServer extends WebSocketServer {
     });
 
     this.redisManager = new RedisManager();
-    this.redisManager.initialize(opts.redisOptions, (err) =>
-      this.emit("error", err)
-    );
+    this.redisManager.initialize(opts.redisOptions, (err) => this.emit("error", err));
 
-    this.instanceManager = new InstanceManager(
-      this.redisManager.redis,
-      this.instanceId
-    );
+    this.instanceManager = new InstanceManager(this.redisManager.redis, this.instanceId);
 
     this.roomManager = new RoomManager(this.redisManager.redis);
     this.recordManager = new RecordManager(this.redisManager.redis);
-    this.connectionManager = new ConnectionManager(
-      this.redisManager.pubClient,
-      this.instanceId,
-      this.roomManager
-    );
-    this.presenceManager = new PresenceManager(
-      this.redisManager.redis,
-      this.roomManager,
-      this.redisManager,
-      this.serverOptions.enablePresenceExpirationEvents
-    );
+    this.connectionManager = new ConnectionManager(this.redisManager.pubClient, this.instanceId, this.roomManager);
+    this.presenceManager = new PresenceManager(this.redisManager.redis, this.roomManager, this.redisManager, this.serverOptions.enablePresenceExpirationEvents);
     if (this.serverOptions.enablePresenceExpirationEvents) {
-      this.redisManager
-        .enableKeyspaceNotifications()
-        .catch((err) =>
-          this.emit(
-            "error",
-            new Error(`Failed to enable keyspace notifications: ${err}`)
-          )
-        );
+      this.redisManager.enableKeyspaceNotifications().catch((err) => this.emit("error", new Error(`Failed to enable keyspace notifications: ${err}`)));
     }
     this.commandManager = new CommandManager((err) => this.emit("error", err));
 
-    this.persistenceManager = new PersistenceManager(
-      this.serverOptions.persistenceOptions
-    );
+    this.persistenceManager = new PersistenceManager(this.serverOptions.persistenceOptions);
     this.persistenceManager.initialize().catch((err) => {
-      this.emit(
-        "error",
-        new Error(`Failed to initialize persistence manager: ${err}`)
-      );
+      this.emit("error", new Error(`Failed to initialize persistence manager: ${err}`));
     });
 
-    this.channelManager = new ChannelManager(
-      this.redisManager.redis,
-      this.redisManager.pubClient,
-      this.redisManager.subClient,
-      (err) => this.emit("error", err)
+    this.channelManager = new ChannelManager(this.redisManager.redis, this.redisManager.pubClient, this.redisManager.subClient, (err) =>
+      this.emit("error", err),
     );
 
     this.channelManager.setPersistenceManager(this.persistenceManager);
-    this.recordSubscriptionManager = new RecordSubscriptionManager(
-      this.redisManager.pubClient,
-      this.recordManager,
-      (err) => this.emit("error", err)
-    );
+    this.recordSubscriptionManager = new RecordSubscriptionManager(this.redisManager.pubClient, this.recordManager, (err) => this.emit("error", err));
     this.pubSubManager = new PubSubManager(
       this.redisManager.subClient,
       this.instanceId,
       this.connectionManager,
       this.recordSubscriptionManager.getRecordSubscriptions(),
       this.channelManager.getSubscribers.bind(this.channelManager),
-      (err) => this.emit("error", err)
+      (err) => this.emit("error", err),
     );
     this.broadcastManager = new BroadcastManager(
       this.connectionManager,
@@ -144,7 +107,7 @@ export class MeshServer extends WebSocketServer {
       this.instanceId,
       this.redisManager.pubClient,
       (instanceId) => `${PUB_SUB_CHANNEL_PREFIX}${instanceId}`,
-      (err) => this.emit("error", err)
+      (err) => this.emit("error", err),
     );
 
     this.on("listening", () => {
@@ -173,14 +136,9 @@ export class MeshServer extends WebSocketServer {
    * @throws {Error} If the readiness process fails or if any awaited promise rejects.
    */
   async ready(): Promise<void> {
-    const listeningPromise = this.listening
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => this.once("listening", resolve));
+    const listeningPromise = this.listening ? Promise.resolve() : new Promise<void>((resolve) => this.once("listening", resolve));
 
-    await Promise.all([
-      listeningPromise,
-      this.pubSubManager.getSubscriptionPromise(),
-    ]);
+    await Promise.all([listeningPromise, this.pubSubManager.getSubscriptionPromise()]);
   }
 
   private applyListeners() {
@@ -192,17 +150,8 @@ export class MeshServer extends WebSocketServer {
           const data = buffer.toString();
           const command = parseCommand(data);
 
-          if (
-            command.id !== undefined &&
-            !["latency:response", "pong"].includes(command.command)
-          ) {
-            this.commandManager.runCommand(
-              command.id,
-              command.command,
-              command.payload,
-              connection,
-              this
-            );
+          if (command.id !== undefined && !["latency:response", "pong"].includes(command.command)) {
+            this.commandManager.runCommand(command.id, command.command, command.payload, connection, this);
           }
         } catch (err) {
           this.emit("error", err);
@@ -234,15 +183,10 @@ export class MeshServer extends WebSocketServer {
 
       connection.on("pong", async (connectionId) => {
         try {
-          const rooms = await this.roomManager.getRoomsForConnection(
-            connectionId
-          );
+          const rooms = await this.roomManager.getRoomsForConnection(connectionId);
           for (const roomName of rooms) {
             if (await this.presenceManager.isRoomTracked(roomName)) {
-              await this.presenceManager.refreshPresence(
-                connectionId,
-                roomName
-              );
+              await this.presenceManager.refreshPresence(connectionId, roomName);
             }
           }
         } catch (err) {
@@ -264,11 +208,7 @@ export class MeshServer extends WebSocketServer {
    * @param {SocketMiddleware[]} [middlewares=[]] - An optional array of middleware functions to apply to the command. Defaults to an empty array.
    * @throws {Error} May throw an error if the command registration or middleware addition fails.
    */
-  exposeCommand<T = any, U = any>(
-    command: string,
-    callback: (context: MeshContext<T>) => Promise<U> | U,
-    middlewares: SocketMiddleware[] = []
-  ) {
+  exposeCommand<T = any, U = any>(command: string, callback: (context: MeshContext<T>) => Promise<U> | U, middlewares: SocketMiddleware[] = []) {
     this.commandManager.exposeCommand(command, callback, middlewares);
   }
 
@@ -291,10 +231,7 @@ export class MeshServer extends WebSocketServer {
    * @param {SocketMiddleware[]} middlewares - An array of middleware functions to be added to the command.
    * @returns {void}
    */
-  useMiddlewareWithCommand(
-    command: string,
-    middlewares: SocketMiddleware[]
-  ): void {
+  useMiddlewareWithCommand(command: string, middlewares: SocketMiddleware[]): void {
     this.commandManager.useMiddlewareWithCommand(command, middlewares);
   }
 
@@ -313,13 +250,7 @@ export class MeshServer extends WebSocketServer {
    *   a boolean or a promise that resolves to a boolean indicating whether access is allowed.
    * @returns {void}
    */
-  exposeChannel(
-    channel: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      channel: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeChannel(channel: ChannelPattern, guard?: (connection: Connection, channel: string) => Promise<boolean> | boolean): void {
     this.channelManager.exposeChannel(channel, guard);
   }
 
@@ -333,17 +264,8 @@ export class MeshServer extends WebSocketServer {
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
    * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `lpush`, `ltrim`, `publish`) fail.
    */
-  async publishToChannel(
-    channel: string,
-    message: any,
-    history: number = 0
-  ): Promise<void> {
-    return this.channelManager.publishToChannel(
-      channel,
-      message,
-      history,
-      this.instanceId
-    );
+  async publishToChannel(channel: string, message: any, history: number = 0): Promise<void> {
+    return this.channelManager.publishToChannel(channel, message, history, this.instanceId);
   }
 
   /**
@@ -353,14 +275,9 @@ export class MeshServer extends WebSocketServer {
    * @param {PersistenceOptions} [options] - Options for persistence.
    * @throws {Error} If persistence is not enabled for this server instance.
    */
-  enablePersistenceForChannels(
-    pattern: ChannelPattern,
-    options: PersistenceOptions = {}
-  ): void {
+  enablePersistenceForChannels(pattern: ChannelPattern, options: PersistenceOptions = {}): void {
     if (!this.persistenceManager) {
-      throw new Error(
-        "Persistence not enabled. Initialize the persistence manager first."
-      );
+      throw new Error("Persistence not enabled. Initialize the persistence manager first.");
     }
 
     this.persistenceManager.enablePersistenceForChannels(pattern, options);
@@ -376,13 +293,7 @@ export class MeshServer extends WebSocketServer {
    * @param {ChannelPattern} recordPattern - The record ID or pattern to expose.
    * @param {(connection: Connection, recordId: string) => Promise<boolean> | boolean} [guard] - Optional guard function.
    */
-  exposeRecord(
-    recordPattern: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      recordId: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeRecord(recordPattern: ChannelPattern, guard?: (connection: Connection, recordId: string) => Promise<boolean> | boolean): void {
     this.recordSubscriptionManager.exposeRecord(recordPattern, guard);
   }
 
@@ -392,13 +303,7 @@ export class MeshServer extends WebSocketServer {
    * @param {ChannelPattern} recordPattern - The record ID or pattern to expose as writable.
    * @param {(connection: Connection, recordId: string) => Promise<boolean> | boolean} [guard] - Optional guard function.
    */
-  exposeWritableRecord(
-    recordPattern: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      recordId: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeWritableRecord(recordPattern: ChannelPattern, guard?: (connection: Connection, recordId: string) => Promise<boolean> | boolean): void {
     this.recordSubscriptionManager.exposeWritableRecord(recordPattern, guard);
   }
 
@@ -412,10 +317,7 @@ export class MeshServer extends WebSocketServer {
    * @throws {Error} If the update fails.
    */
   async publishRecordUpdate(recordId: string, newValue: any): Promise<void> {
-    return this.recordSubscriptionManager.publishRecordUpdate(
-      recordId,
-      newValue
-    );
+    return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue);
   }
 
   // #endregion
@@ -423,14 +325,12 @@ export class MeshServer extends WebSocketServer {
   // #region Room Management
 
   async isInRoom(roomName: string, connection: Connection | string) {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     return this.roomManager.connectionIsInRoom(roomName, connectionId);
   }
 
   async addToRoom(roomName: string, connection: Connection | string) {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     await this.roomManager.addToRoom(roomName, connection);
 
     if (await this.presenceManager.isRoomTracked(roomName)) {
@@ -439,8 +339,7 @@ export class MeshServer extends WebSocketServer {
   }
 
   async removeFromRoom(roomName: string, connection: Connection | string) {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+    const connectionId = typeof connection === "string" ? connection : connection.id;
 
     if (await this.presenceManager.isRoomTracked(roomName)) {
       await this.presenceManager.markOffline(connectionId, roomName);
@@ -491,11 +390,7 @@ export class MeshServer extends WebSocketServer {
    * @returns {Promise<void>} A promise that resolves when the broadcast operation is complete.
    * @throws {Error} If the broadcast operation fails, an error is thrown and the promise is rejected.
    */
-  async broadcastRoom(
-    roomName: string,
-    command: string,
-    payload: any
-  ): Promise<void> {
+  async broadcastRoom(roomName: string, command: string, payload: any): Promise<void> {
     return this.broadcastManager.broadcastRoom(roomName, command, payload);
   }
 
@@ -509,11 +404,7 @@ export class MeshServer extends WebSocketServer {
    * @returns {Promise<void>} A promise that resolves when the broadcast is complete.
    * @emits {Error} Emits an "error" event if broadcasting the command fails.
    */
-  async broadcastExclude(
-    command: string,
-    payload: any,
-    exclude: Connection | Connection[]
-  ): Promise<void> {
+  async broadcastExclude(command: string, payload: any, exclude: Connection | Connection[]): Promise<void> {
     return this.broadcastManager.broadcastExclude(command, payload, exclude);
   }
 
@@ -528,18 +419,8 @@ export class MeshServer extends WebSocketServer {
    * @returns {Promise<void>} A promise that resolves when the broadcast is complete.
    * @emits {Error} Emits an error event if broadcasting fails.
    */
-  async broadcastRoomExclude(
-    roomName: string,
-    command: string,
-    payload: any,
-    exclude: Connection | Connection[]
-  ): Promise<void> {
-    return this.broadcastManager.broadcastRoomExclude(
-      roomName,
-      command,
-      payload,
-      exclude
-    );
+  async broadcastRoomExclude(roomName: string, command: string, payload: any, exclude: Connection | Connection[]): Promise<void> {
+    return this.broadcastManager.broadcastRoomExclude(roomName, command, payload, exclude);
   }
 
   // #endregion
@@ -549,17 +430,11 @@ export class MeshServer extends WebSocketServer {
   trackPresence(
     roomPattern: string | RegExp,
     guardOrOptions?:
-      | ((
-          connection: Connection,
-          roomName: string
-        ) => Promise<boolean> | boolean)
+      | ((connection: Connection, roomName: string) => Promise<boolean> | boolean)
       | {
           ttl?: number;
-          guard?: (
-            connection: Connection,
-            roomName: string
-          ) => Promise<boolean> | boolean;
-        }
+          guard?: (connection: Connection, roomName: string) => Promise<boolean> | boolean;
+        },
   ): void {
     this.presenceManager.trackRoom(roomPattern, guardOrOptions);
   }
@@ -572,246 +447,166 @@ export class MeshServer extends WebSocketServer {
     // this no-op command is just for allowing clients to test their connection
     // after a period of inactivity
     this.exposeCommand("mesh/noop", async () => true);
-    this.exposeCommand<
-      { channel: string; historyLimit?: number; since?: string | number },
-      { success: boolean; history?: string[] }
-    >("mesh/subscribe-channel", async (ctx) => {
-      const { channel, historyLimit, since } = ctx.payload;
-
-      if (
-        !(await this.channelManager.isChannelExposed(channel, ctx.connection))
-      ) {
-        return { success: false, history: [] };
-      }
-
-      try {
-        if (!this.channelManager.getSubscribers(channel)) {
-          await this.channelManager.subscribeToRedisChannel(channel);
-        }
-        this.channelManager.addSubscription(channel, ctx.connection);
-
-        let history: string[] = [];
-
-        if (historyLimit && historyLimit > 0) {
-          history = await this.channelManager.getChannelHistory(
-            channel,
-            historyLimit,
-            since
-          );
-        }
-
-        return {
-          success: true,
-          history,
-        };
-      } catch (e) {
-        return { success: false, history: [] };
-      }
-    });
-
-    this.exposeCommand<{ channel: string }, boolean>(
-      "mesh/unsubscribe-channel",
+    this.exposeCommand<{ channel: string; historyLimit?: number; since?: string | number }, { success: boolean; history?: string[] }>(
+      "mesh/subscribe-channel",
       async (ctx) => {
-        const { channel } = ctx.payload;
-        const wasSubscribed = this.channelManager.removeSubscription(
-          channel,
-          ctx.connection
-        );
+        const { channel, historyLimit, since } = ctx.payload;
 
-        if (wasSubscribed && !this.channelManager.getSubscribers(channel)) {
-          await this.channelManager.unsubscribeFromRedisChannel(channel);
+        if (!(await this.channelManager.isChannelExposed(channel, ctx.connection))) {
+          return { success: false, history: [] };
         }
 
-        return wasSubscribed;
-      }
-    );
+        try {
+          if (!this.channelManager.getSubscribers(channel)) {
+            await this.channelManager.subscribeToRedisChannel(channel);
+          }
+          this.channelManager.addSubscription(channel, ctx.connection);
 
-    this.exposeCommand<
-      { channel: string; limit?: number; since?: string | number },
-      { success: boolean; history: string[] }
-    >("mesh/get-channel-history", async (ctx) => {
-      const { channel, limit, since } = ctx.payload;
-
-      if (
-        !(await this.channelManager.isChannelExposed(channel, ctx.connection))
-      ) {
-        return { success: false, history: [] };
-      }
-
-      try {
-        if (
-          this.persistenceManager &&
-          this.persistenceManager.getChannelPersistenceOptions(channel)
-        ) {
-          const messages = await this.persistenceManager.getMessages(
-            channel,
-            since,
-            limit ||
-              this.persistenceManager.getChannelPersistenceOptions(channel)
-                ?.historyLimit
-          );
-
-          return {
-            success: true,
-            history: messages.map((msg) => msg.message),
-          };
-        } else {
-          const history = await this.channelManager.getChannelHistory(
-            channel,
-            limit || 50,
-            since
-          );
+          const history: string[] = historyLimit && historyLimit > 0 ? await this.channelManager.getChannelHistory(channel, historyLimit, since) : [];
 
           return {
             success: true,
             history,
           };
+        } catch (e) {
+          return { success: false, history: [] };
         }
-      } catch (e) {
-        return { success: false, history: [] };
+      },
+    );
+
+    this.exposeCommand<{ channel: string }, boolean>("mesh/unsubscribe-channel", async (ctx) => {
+      const { channel } = ctx.payload;
+      const wasSubscribed = this.channelManager.removeSubscription(channel, ctx.connection);
+
+      if (wasSubscribed && !this.channelManager.getSubscribers(channel)) {
+        await this.channelManager.unsubscribeFromRedisChannel(channel);
       }
+
+      return wasSubscribed;
     });
 
-    this.exposeCommand<
-      { roomName: string },
-      { success: boolean; present: string[] }
-    >("mesh/join-room", async (ctx) => {
+    this.exposeCommand<{ channel: string; limit?: number; since?: string | number }, { success: boolean; history: string[] }>(
+      "mesh/get-channel-history",
+      async (ctx) => {
+        const { channel, limit, since } = ctx.payload;
+
+        if (!(await this.channelManager.isChannelExposed(channel, ctx.connection))) {
+          return { success: false, history: [] };
+        }
+
+        try {
+          if (this.persistenceManager?.getChannelPersistenceOptions(channel)) {
+            const messages = await this.persistenceManager.getMessages(
+              channel,
+              since,
+              limit || this.persistenceManager.getChannelPersistenceOptions(channel)?.historyLimit,
+            );
+
+            return {
+              success: true,
+              history: messages.map((msg) => msg.message),
+            };
+          } else {
+            const history = await this.channelManager.getChannelHistory(channel, limit || 50, since);
+
+            return {
+              success: true,
+              history,
+            };
+          }
+        } catch (e) {
+          return { success: false, history: [] };
+        }
+      },
+    );
+
+    this.exposeCommand<{ roomName: string }, { success: boolean; present: string[] }>("mesh/join-room", async (ctx) => {
       const { roomName } = ctx.payload;
       await this.addToRoom(roomName, ctx.connection);
-      const present = await this.presenceManager.getPresentConnections(
-        roomName
-      );
+      const present = await this.presenceManager.getPresentConnections(roomName);
       return { success: true, present };
     });
 
-    this.exposeCommand<{ roomName: string }, { success: boolean }>(
-      "mesh/leave-room",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        await this.removeFromRoom(roomName, ctx.connection);
-        return { success: true };
-      }
-    );
+    this.exposeCommand<{ roomName: string }, { success: boolean }>("mesh/leave-room", async (ctx) => {
+      const { roomName } = ctx.payload;
+      await this.removeFromRoom(roomName, ctx.connection);
+      return { success: true };
+    });
 
-    this.exposeCommand<{ connectionId: string }, { metadata: any }>(
-      "mesh/get-connection-metadata",
-      async (ctx) => {
-        const { connectionId } = ctx.payload;
-        const connection =
-          this.connectionManager.getLocalConnection(connectionId);
+    this.exposeCommand<{ connectionId: string }, { metadata: any }>("mesh/get-connection-metadata", async (ctx) => {
+      const { connectionId } = ctx.payload;
+      const connection = this.connectionManager.getLocalConnection(connectionId);
 
-        if (connection) {
-          const metadata = await this.connectionManager.getMetadata(connection);
-          return { metadata };
-        } else {
-          const metadata = await this.redisManager.redis.hget(
-            "mesh:connections",
-            connectionId
-          );
-          return { metadata: metadata ? JSON.parse(metadata) : null };
-        }
-      }
-    );
-
-    this.exposeCommand<{}, { metadata: any }>(
-      "mesh/get-my-connection-metadata",
-      async (ctx) => {
-        const connectionId = ctx.connection.id;
-        const connection =
-          this.connectionManager.getLocalConnection(connectionId);
-        if (connection) {
-          const metadata = await this.connectionManager.getMetadata(connection);
-          return { metadata };
-        } else {
-          const metadata = await this.redisManager.redis.hget(
-            "mesh:connections",
-            connectionId
-          );
-          return { metadata: metadata ? JSON.parse(metadata) : null };
-        }
-      }
-    );
-
-    this.exposeCommand<{ roomName: string }, { metadata: any }>(
-      "mesh/get-room-metadata",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        const metadata = await this.roomManager.getMetadata(roomName);
+      if (connection) {
+        const metadata = await this.connectionManager.getMetadata(connection);
         return { metadata };
-      }
-    );
-  }
-
-  private registerRecordCommands() {
-    this.exposeCommand<
-      { recordId: string; mode?: "patch" | "full" },
-      { success: boolean; record?: any; version?: number }
-    >("mesh/subscribe-record", async (ctx) => {
-      const { recordId, mode = "full" } = ctx.payload;
-      const connectionId = ctx.connection.id;
-
-      if (
-        !(await this.recordSubscriptionManager.isRecordExposed(
-          recordId,
-          ctx.connection
-        ))
-      ) {
-        return { success: false };
-      }
-
-      try {
-        const { record, version } =
-          await this.recordManager.getRecordAndVersion(recordId);
-
-        this.recordSubscriptionManager.addSubscription(
-          recordId,
-          connectionId,
-          mode
-        );
-
-        return { success: true, record, version };
-      } catch (e) {
-        console.error(`Failed to subscribe to record ${recordId}:`, e);
-        return { success: false };
+      } else {
+        const metadata = await this.redisManager.redis.hget("mesh:connections", connectionId);
+        return { metadata: metadata ? JSON.parse(metadata) : null };
       }
     });
 
-    this.exposeCommand<{ recordId: string }, boolean>(
-      "mesh/unsubscribe-record",
-      async (ctx) => {
-        const { recordId } = ctx.payload;
-        const connectionId = ctx.connection.id;
-        return this.recordSubscriptionManager.removeSubscription(
-          recordId,
-          connectionId
-        );
+    this.exposeCommand<{}, { metadata: any }>("mesh/get-my-connection-metadata", async (ctx) => {
+      const connectionId = ctx.connection.id;
+      const connection = this.connectionManager.getLocalConnection(connectionId);
+      if (connection) {
+        const metadata = await this.connectionManager.getMetadata(connection);
+        return { metadata };
+      } else {
+        const metadata = await this.redisManager.redis.hget("mesh:connections", connectionId);
+        return { metadata: metadata ? JSON.parse(metadata) : null };
       }
+    });
+
+    this.exposeCommand<{ roomName: string }, { metadata: any }>("mesh/get-room-metadata", async (ctx) => {
+      const { roomName } = ctx.payload;
+      const metadata = await this.roomManager.getMetadata(roomName);
+      return { metadata };
+    });
+  }
+
+  private registerRecordCommands() {
+    this.exposeCommand<{ recordId: string; mode?: "patch" | "full" }, { success: boolean; record?: any; version?: number }>(
+      "mesh/subscribe-record",
+      async (ctx) => {
+        const { recordId, mode = "full" } = ctx.payload;
+        const connectionId = ctx.connection.id;
+
+        if (!(await this.recordSubscriptionManager.isRecordExposed(recordId, ctx.connection))) {
+          return { success: false };
+        }
+
+        try {
+          const { record, version } = await this.recordManager.getRecordAndVersion(recordId);
+
+          this.recordSubscriptionManager.addSubscription(recordId, connectionId, mode);
+
+          return { success: true, record, version };
+        } catch (e) {
+          console.error(`Failed to subscribe to record ${recordId}:`, e);
+          return { success: false };
+        }
+      },
     );
 
-    this.exposeCommand<
-      { recordId: string; newValue: any },
-      { success: boolean }
-    >("mesh/publish-record-update", async (ctx) => {
+    this.exposeCommand<{ recordId: string }, boolean>("mesh/unsubscribe-record", async (ctx) => {
+      const { recordId } = ctx.payload;
+      const connectionId = ctx.connection.id;
+      return this.recordSubscriptionManager.removeSubscription(recordId, connectionId);
+    });
+
+    this.exposeCommand<{ recordId: string; newValue: any }, { success: boolean }>("mesh/publish-record-update", async (ctx) => {
       const { recordId, newValue } = ctx.payload;
 
-      if (
-        !(await this.recordSubscriptionManager.isRecordWritable(
-          recordId,
-          ctx.connection
-        ))
-      ) {
-        throw new Error(
-          `Record "${recordId}" is not writable by this connection.`
-        );
+      if (!(await this.recordSubscriptionManager.isRecordWritable(recordId, ctx.connection))) {
+        throw new Error(`Record "${recordId}" is not writable by this connection.`);
       }
 
       try {
         await this.publishRecordUpdate(recordId, newValue);
         return { success: true };
       } catch (e: any) {
-        throw new Error(
-          `Failed to publish update for record "${recordId}": ${e.message}`
-        );
+        throw new Error(`Failed to publish update for record "${recordId}": ${e.message}`);
       }
     });
 
@@ -825,9 +620,7 @@ export class MeshServer extends WebSocketServer {
     >("mesh/subscribe-presence", async (ctx) => {
       const { roomName } = ctx.payload;
 
-      if (
-        !(await this.presenceManager.isRoomTracked(roomName, ctx.connection))
-      ) {
+      if (!(await this.presenceManager.isRoomTracked(roomName, ctx.connection))) {
         return { success: false, present: [] };
       }
 
@@ -836,21 +629,14 @@ export class MeshServer extends WebSocketServer {
 
         this.channelManager.addSubscription(presenceChannel, ctx.connection);
 
-        if (
-          !this.channelManager.getSubscribers(presenceChannel) ||
-          this.channelManager.getSubscribers(presenceChannel)?.size === 1
-        ) {
+        if (!this.channelManager.getSubscribers(presenceChannel) || this.channelManager.getSubscribers(presenceChannel)?.size === 1) {
           await this.channelManager.subscribeToRedisChannel(presenceChannel);
         }
 
-        const present = await this.presenceManager.getPresentConnections(
-          roomName
-        );
+        const present = await this.presenceManager.getPresentConnections(roomName);
 
         // get all presence states for the room
-        const statesMap = await this.presenceManager.getAllPresenceStates(
-          roomName
-        );
+        const statesMap = await this.presenceManager.getAllPresenceStates(roomName);
         const states: Record<string, Record<string, any>> = {};
 
         statesMap.forEach((state, connectionId) => {
@@ -863,25 +649,16 @@ export class MeshServer extends WebSocketServer {
           states,
         };
       } catch (e) {
-        console.error(
-          `Failed to subscribe to presence for room ${roomName}:`,
-          e
-        );
+        console.error(`Failed to subscribe to presence for room ${roomName}:`, e);
         return { success: false, present: [] };
       }
     });
 
-    this.exposeCommand<{ roomName: string }, boolean>(
-      "mesh/unsubscribe-presence",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        const presenceChannel = `mesh:presence:updates:${roomName}`;
-        return this.channelManager.removeSubscription(
-          presenceChannel,
-          ctx.connection
-        );
-      }
-    );
+    this.exposeCommand<{ roomName: string }, boolean>("mesh/unsubscribe-presence", async (ctx) => {
+      const { roomName } = ctx.payload;
+      const presenceChannel = `mesh:presence:updates:${roomName}`;
+      return this.channelManager.removeSubscription(presenceChannel, ctx.connection);
+    });
 
     this.exposeCommand<
       {
@@ -900,60 +677,36 @@ export class MeshServer extends WebSocketServer {
       }
 
       // ensure presence is tracked for this room and the connection is in the room
-      if (
-        !(await this.presenceManager.isRoomTracked(roomName, ctx.connection)) ||
-        !(await this.isInRoom(roomName, connectionId))
-      ) {
+      if (!(await this.presenceManager.isRoomTracked(roomName, ctx.connection)) || !(await this.isInRoom(roomName, connectionId))) {
         return false;
       }
 
       try {
-        await this.presenceManager.publishPresenceState(
-          connectionId,
-          roomName,
-          state,
-          expireAfter,
-          silent
-        );
+        await this.presenceManager.publishPresenceState(connectionId, roomName, state, expireAfter, silent);
         return true;
       } catch (e) {
-        console.error(
-          `Failed to publish presence state for room ${roomName}:`,
-          e
-        );
+        console.error(`Failed to publish presence state for room ${roomName}:`, e);
         return false;
       }
     });
 
-    this.exposeCommand<{ roomName: string }, boolean>(
-      "mesh/clear-presence-state",
-      async (ctx) => {
-        const { roomName } = ctx.payload;
-        const connectionId = ctx.connection.id;
+    this.exposeCommand<{ roomName: string }, boolean>("mesh/clear-presence-state", async (ctx) => {
+      const { roomName } = ctx.payload;
+      const connectionId = ctx.connection.id;
 
-        // ensure presence is tracked for this room and the connection is in the room
-        if (
-          !(await this.presenceManager.isRoomTracked(
-            roomName,
-            ctx.connection
-          )) ||
-          !(await this.isInRoom(roomName, connectionId))
-        ) {
-          return false;
-        }
-
-        try {
-          await this.presenceManager.clearPresenceState(connectionId, roomName);
-          return true;
-        } catch (e) {
-          console.error(
-            `Failed to clear presence state for room ${roomName}:`,
-            e
-          );
-          return false;
-        }
+      // ensure presence is tracked for this room and the connection is in the room
+      if (!(await this.presenceManager.isRoomTracked(roomName, ctx.connection)) || !(await this.isInRoom(roomName, connectionId))) {
+        return false;
       }
-    );
+
+      try {
+        await this.presenceManager.clearPresenceState(connectionId, roomName);
+        return true;
+      } catch (e) {
+        console.error(`Failed to clear presence state for room ${roomName}:`, e);
+        return false;
+      }
+    });
 
     this.exposeCommand<
       { roomName: string },
@@ -965,20 +718,14 @@ export class MeshServer extends WebSocketServer {
     >("mesh/get-presence-state", async (ctx) => {
       const { roomName } = ctx.payload;
 
-      if (
-        !(await this.presenceManager.isRoomTracked(roomName, ctx.connection))
-      ) {
+      if (!(await this.presenceManager.isRoomTracked(roomName, ctx.connection))) {
         return { success: false, present: [] };
       }
 
       try {
-        const present = await this.presenceManager.getPresentConnections(
-          roomName
-        );
+        const present = await this.presenceManager.getPresentConnections(roomName);
 
-        const statesMap = await this.presenceManager.getAllPresenceStates(
-          roomName
-        );
+        const statesMap = await this.presenceManager.getAllPresenceStates(roomName);
         const states: Record<string, Record<string, any>> = {};
 
         statesMap.forEach((state, connectionId) => {
@@ -1028,16 +775,14 @@ export class MeshServer extends WebSocketServer {
 
     this.redisManager.isShuttingDown = true;
 
-    const connections = Object.values(
-      this.connectionManager.getLocalConnections()
-    );
+    const connections = Object.values(this.connectionManager.getLocalConnections());
     await Promise.all(
       connections.map(async (connection) => {
         if (!connection.isDead) {
           await connection.close();
         }
         await this.cleanupConnection(connection);
-      })
+      }),
     );
 
     await new Promise<void>((resolve, reject) => {
@@ -1071,9 +816,7 @@ export class MeshServer extends WebSocketServer {
    * @param {(connection: Connection) => Promise<void> | void} callback - The function to execute when a new connection is established.
    * @returns {MeshServer} The server instance for method chaining.
    */
-  onConnection(
-    callback: (connection: Connection) => Promise<void> | void
-  ): MeshServer {
+  onConnection(callback: (connection: Connection) => Promise<void> | void): MeshServer {
     this.on("connected", callback);
     return this;
   }
@@ -1084,9 +827,7 @@ export class MeshServer extends WebSocketServer {
    * @param {(connection: Connection) => Promise<void> | void} callback - The function to execute when a connection is closed.
    * @returns {MeshServer} The server instance for method chaining.
    */
-  onDisconnection(
-    callback: (connection: Connection) => Promise<void> | void
-  ): MeshServer {
+  onDisconnection(callback: (connection: Connection) => Promise<void> | void): MeshServer {
     this.on("disconnected", callback);
     return this;
   }

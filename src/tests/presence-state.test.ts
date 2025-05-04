@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -63,10 +61,7 @@ describe("Presence State", () => {
       updates.push(update);
     });
 
-    const { success, present, states } = await client1.subscribePresence(
-      roomName,
-      callback
-    );
+    const { success, present, states } = await client1.subscribePresence(roomName, callback);
     expect(success).toBe(true);
     expect(states).toEqual({});
 
@@ -155,10 +150,7 @@ describe("Presence State", () => {
     await client3.connect();
 
     const callback = vi.fn();
-    const { success, present, states } = await client3.subscribePresence(
-      roomName,
-      callback
-    );
+    const { success, present, states } = await client3.subscribePresence(roomName, callback);
 
     expect(success).toBe(true);
     expect(present.length).toBe(2);
@@ -264,9 +256,7 @@ describe("Presence State", () => {
     expect(updates[2].state).toEqual(state2);
 
     // make sure only the latest state is kept
-    const statesMap = await server.presenceManager.getAllPresenceStates(
-      roomName
-    );
+    const statesMap = await server.presenceManager.getAllPresenceStates(roomName);
     const connections = server.connectionManager.getLocalConnections();
     const connection2 = connections[1]!;
     expect(statesMap.get(connection2.id)).toEqual(state2);
@@ -281,9 +271,7 @@ describe("Presence State", () => {
     expect(result).toBe(false);
 
     // make sure no state was stored
-    const statesMap = await server.presenceManager.getAllPresenceStates(
-      roomName
-    );
+    const statesMap = await server.presenceManager.getAllPresenceStates(roomName);
     const connections = server.connectionManager.getLocalConnections();
     const connection1 = connections[0]!;
     expect(statesMap.has(connection1.id)).toBe(false);
@@ -383,12 +371,8 @@ describe("Presence State", () => {
     await client1.publishPresenceState(room1, { state: updatedState1 });
     await wait(100);
 
-    const updatedStatesMap1 = await server.presenceManager.getAllPresenceStates(
-      room1
-    );
-    const updatedStatesMap2 = await server.presenceManager.getAllPresenceStates(
-      room2
-    );
+    const updatedStatesMap1 = await server.presenceManager.getAllPresenceStates(room1);
+    const updatedStatesMap2 = await server.presenceManager.getAllPresenceStates(room2);
 
     expect(updatedStatesMap1.get(connection1.id)).toEqual(updatedState1);
     expect(updatedStatesMap2.get(connection1.id)).toEqual(state2); // Still has original state

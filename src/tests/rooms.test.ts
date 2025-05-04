@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -86,9 +84,7 @@ describe("MeshServer", () => {
 
     expect(await server.roomManager.getMetadata(room2)).toEqual(initialMeta2);
 
-    expect(
-      await server.roomManager.getMetadata("non-existent-room")
-    ).toBeNull();
+    expect(await server.roomManager.getMetadata("non-existent-room")).toBeNull();
 
     const allMeta = await server.roomManager.getAllMetadata();
     expect(allMeta).toEqual({

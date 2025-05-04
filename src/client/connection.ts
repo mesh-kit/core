@@ -1,10 +1,6 @@
 import { EventEmitter } from "eventemitter3";
 import { CodeError } from "../common/codeerror";
-import {
-  type Command,
-  parseCommand,
-  stringifyCommand,
-} from "../common/message";
+import { type Command, parseCommand, stringifyCommand } from "../common/message";
 import { Status } from "../common/status";
 import { IdManager } from "./ids";
 import { Queue } from "./queue";
@@ -108,12 +104,7 @@ export class Connection extends EventEmitter {
     };
   }
 
-  command(
-    command: string,
-    payload: any,
-    expiresIn: number | null = 30_000,
-    callback?: (result: any, error?: Error) => void
-  ): Promise<any> {
+  command(command: string, payload: any, expiresIn: number | null = 30_000, callback?: (result: any, error?: Error) => void): Promise<any> {
     const id = this.ids.reserve();
     const cmd: Command = { id, command, payload: payload ?? {} };
 
@@ -143,13 +134,7 @@ export class Connection extends EventEmitter {
 
         this.ids.release(id);
         delete this.callbacks[id];
-        reject(
-          new CodeError(
-            `Command timed out after ${expiresIn}ms.`,
-            "ETIMEOUT",
-            "TimeoutError"
-          )
-        );
+        reject(new CodeError(`Command timed out after ${expiresIn}ms.`, "ETIMEOUT", "TimeoutError"));
       }, expiresIn);
     });
 

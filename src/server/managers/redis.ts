@@ -129,8 +129,7 @@ export class RedisManager {
    */
   async enableKeyspaceNotifications(): Promise<void> {
     const result = await this.redis.config("GET", "notify-keyspace-events");
-    const currentConfig =
-      Array.isArray(result) && result.length > 1 ? result[1] : "";
+    const currentConfig = Array.isArray(result) && result.length > 1 ? result[1] : "";
 
     // add expired events notification if not already enabled
     // 'E' enables keyevent notifications, 'x' enables expired events

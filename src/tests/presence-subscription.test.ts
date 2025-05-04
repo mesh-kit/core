@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -58,10 +56,7 @@ describe("Presence Subscription", () => {
     await client1.connect();
 
     const callback = vi.fn();
-    const { success, present } = await client1.subscribePresence(
-      roomName,
-      callback
-    );
+    const { success, present } = await client1.subscribePresence(roomName, callback);
 
     expect(success).toBe(true);
     expect(Array.isArray(present)).toBe(true);
@@ -73,10 +68,7 @@ describe("Presence Subscription", () => {
     await client1.connect();
 
     const callback = vi.fn();
-    const { success, present } = await client1.subscribePresence(
-      roomName,
-      callback
-    );
+    const { success, present } = await client1.subscribePresence(roomName, callback);
 
     expect(success).toBe(false);
     expect(present.length).toBe(0);
@@ -90,10 +82,7 @@ describe("Presence Subscription", () => {
     const connections = server.connectionManager.getLocalConnections();
     const connection1Id = connections[0]?.id;
 
-    server.trackPresence(
-      "guarded:room",
-      (connection, roomName) => connection.id === connection1Id
-    );
+    server.trackPresence("guarded:room", (connection, roomName) => connection.id === connection1Id);
 
     const callback1 = vi.fn();
     const result1 = await client1.subscribePresence("guarded:room", callback1);
@@ -214,10 +203,7 @@ describe("Presence Subscription", () => {
     await wait(100);
 
     const callback = vi.fn();
-    const { success, present } = await client1.subscribePresence(
-      roomName,
-      callback
-    );
+    const { success, present } = await client1.subscribePresence(roomName, callback);
 
     expect(success).toBe(true);
     expect(present.length).toBe(2);
@@ -263,9 +249,7 @@ describe("Presence Subscription", () => {
 
     await testServer.addToRoom(roomName, connection);
 
-    let present = await testServer.presenceManager.getPresentConnections(
-      roomName
-    );
+    let present = await testServer.presenceManager.getPresentConnections(roomName);
     expect(present).toContain(connection.id);
 
     // wait for more than the TTL to allow the key to expire and notification to be processed
@@ -278,40 +262,40 @@ describe("Presence Subscription", () => {
     await testClient.close();
     await testServer.close();
   }, 10000);
-  
+
   // test("client can manually refresh presence", async () => {
   //   const roomName = "test:room:refresh";
   //   const shortTTL = 500; // very short TTL for testing
-    
+
   //   server.trackPresence(roomName, { ttl: shortTTL });
-    
+
   //   await client1.connect();
-    
+
   //   // join
   //   const joinResult = await client1.joinRoom(roomName);
   //   expect(joinResult.success).toBe(true);
-    
+
   //   // get my id
   //   const connections = server.connectionManager.getLocalConnections();
   //   const connectionId = connections[0]?.id;
   //   expect(connectionId).toBeDefined();
-    
+
   //   // verify presence
   //   let present = await server.presenceManager.getPresentConnections(roomName);
   //   expect(present).toContain(connectionId);
-    
+
   //   // wait half the TTL
   //   await wait(shortTTL / 2);
-    
+
   //   // refresh presence
   //   const refreshResult = await client1.refreshPresence(roomName);
-    
+
   //   // verify refresh was successful
   //   expect(refreshResult).toBe(true);
-    
+
   //   // wait for longer than the original TTL
   //   await wait(shortTTL + 100);
-    
+
   //   // presence should still be active due to the refresh
   //   present = await server.presenceManager.getPresentConnections(roomName);
   //   expect(present).toContain(connectionId);
@@ -368,10 +352,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
     expect(clientBId).toBeDefined();
 
     const callbackA = vi.fn();
-    const { present: initialPresentA } = await clientA.subscribePresence(
-      roomName,
-      callbackA
-    );
+    const { present: initialPresentA } = await clientA.subscribePresence(roomName, callbackA);
     expect(initialPresentA).toEqual([]); // empty room
 
     const joinResultB = await clientB.joinRoom(roomName);
@@ -386,7 +367,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
         type: "join",
         roomName: roomName,
         connectionId: clientBId,
-      })
+      }),
     );
   }, 10000);
 
@@ -399,10 +380,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
     expect(clientBId).toBeDefined();
 
     const callbackA = vi.fn();
-    const { present: initialPresentA } = await clientA.subscribePresence(
-      roomName,
-      callbackA
-    );
+    const { present: initialPresentA } = await clientA.subscribePresence(roomName, callbackA);
     expect(initialPresentA).toEqual([]);
 
     await clientB.joinRoom(roomName);
@@ -410,9 +388,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
 
     // client a receives join event from client b
     expect(callbackA).toHaveBeenCalledTimes(1);
-    expect(callbackA).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "join", connectionId: clientBId })
-    );
+    expect(callbackA).toHaveBeenCalledWith(expect.objectContaining({ type: "join", connectionId: clientBId }));
 
     // client B leaves the room via srv b
     const leaveResultB = await clientB.leaveRoom(roomName);
@@ -428,7 +404,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
         type: "leave",
         roomName: roomName,
         connectionId: clientBId,
-      })
+      }),
     );
   }, 10000);
 
@@ -441,19 +417,14 @@ describe("Presence Subscription (Multiple Instances)", () => {
     expect(clientBId).toBeDefined();
 
     const callbackA = vi.fn();
-    const { present: initialPresentA } = await clientA.subscribePresence(
-      roomName,
-      callbackA
-    );
+    const { present: initialPresentA } = await clientA.subscribePresence(roomName, callbackA);
     expect(initialPresentA).toEqual([]);
 
     await clientB.joinRoom(roomName);
     await wait(150);
 
     expect(callbackA).toHaveBeenCalledTimes(1);
-    expect(callbackA).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "join", connectionId: clientBId })
-    );
+    expect(callbackA).toHaveBeenCalledWith(expect.objectContaining({ type: "join", connectionId: clientBId }));
 
     // client b disconnects from server b
     await clientB.close();
@@ -468,7 +439,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
         type: "leave",
         roomName: roomName,
         connectionId: clientBId,
-      })
+      }),
     );
   }, 10000);
 
@@ -492,10 +463,7 @@ describe("Presence Subscription (Multiple Instances)", () => {
 
     // client a subscribes to presence from srv a
     const callbackA = vi.fn();
-    const { success, present } = await clientA.subscribePresence(
-      roomName,
-      callbackA
-    );
+    const { success, present } = await clientA.subscribePresence(roomName, callbackA);
 
     expect(success).toBe(true);
     // initial list contains client b and c

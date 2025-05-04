@@ -19,7 +19,7 @@ import { clientLogger } from "../common/logger";
  *   read(): TState | null,
  *   clear(): Promise<void>,
  *   dispose(): void
- * }} An object with methods to manage presence.
+ * }}
  */
 export function createPresence<TState extends Record<string, any>>({
   client,
@@ -31,16 +31,13 @@ export function createPresence<TState extends Record<string, any>>({
   client: MeshClient;
   room: string;
   storageKey: string;
-  stateIdentifier: (
-    state: TState | null | undefined,
-    connectionId: string
-  ) => string | undefined | Promise<string | undefined>;
+  stateIdentifier: (state: TState | null | undefined, connectionId: string) => string | undefined | Promise<string | undefined>;
   onUpdate: (
     users: Array<{
       id: string;
       state: TState | null;
       tabCount: number;
-    }>
+    }>,
   ) => void;
 }) {
   const storage = createStorageManager<TState>(storageKey);
@@ -104,16 +101,10 @@ export function createPresence<TState extends Record<string, any>>({
       try {
         await client.forcePresenceUpdate(room);
       } catch (updateErr) {
-        clientLogger.error(
-          "Failed to force presence update during reconnect:",
-          updateErr
-        );
+        clientLogger.error("Failed to force presence update during reconnect:", updateErr);
       }
     } catch (err) {
-      clientLogger.error(
-        "Failed to publish state during reconnect:",
-        err
-      );
+      clientLogger.error("Failed to publish state during reconnect:", err);
       if (!isInitialized) {
         await initialize();
       }
@@ -169,15 +160,9 @@ export function createPresence<TState extends Record<string, any>>({
 
     const wrappedHandler = createWrappedHandler(handler);
 
-    const { present, states } = await client.subscribePresence(
-      room,
-      wrappedHandler
-    );
+    const { present, states } = await client.subscribePresence(room, wrappedHandler);
 
-    wrappedHandler.init(
-      present,
-      (states as Record<string, TState | null | undefined>) ?? {}
-    );
+    wrappedHandler.init(present, (states as Record<string, TState | null | undefined>) ?? {});
 
     const initialState = storage.read();
     if (initialState) {
@@ -187,16 +172,9 @@ export function createPresence<TState extends Record<string, any>>({
 
   // wrapped handler that tracks connection states
   const createWrappedHandler = (handler: any) => {
-    const wrappedHandler = ((update: {
-      type: "join" | "leave" | "state";
-      connectionId: string;
-      state?: TState | null;
-    }) => {
+    const wrappedHandler = ((update: { type: "join" | "leave" | "state"; connectionId: string; state?: TState | null }) => {
       if (update.type === "state") {
-        stateManager.setConnectionState(
-          update.connectionId,
-          update.state ?? null
-        );
+        stateManager.setConnectionState(update.connectionId, update.state ?? null);
       } else if (update.type === "leave") {
         stateManager.removeConnectionState(update.connectionId);
       }
@@ -204,10 +182,7 @@ export function createPresence<TState extends Record<string, any>>({
       handler(update);
     }) as any;
 
-    wrappedHandler.init = (
-      present: string[],
-      states: Record<string, TState | null | undefined>
-    ) => {
+    wrappedHandler.init = (present: string[], states: Record<string, TState | null | undefined>) => {
       for (const connectionId of present) {
         const state = states?.[connectionId] ?? null;
         stateManager.setConnectionState(connectionId, state);
@@ -222,12 +197,7 @@ export function createPresence<TState extends Record<string, any>>({
   // format users from groups for the onUpdate callback
   const formatUsers = (groups: Map<string, Group<TState>>) =>
     Array.from(groups.entries())
-      .filter(
-        ([id]) =>
-          !id.startsWith("__ungrouped__") &&
-          !id.startsWith("__pending__") &&
-          !id.startsWith("__temp__")
-      )
+      .filter(([id]) => !id.startsWith("__ungrouped__") && !id.startsWith("__pending__") && !id.startsWith("__temp__"))
       .map(([id, group]) => ({
         id,
         state: group.state,
@@ -335,25 +305,16 @@ function createStateManager<TState>() {
 }
 
 function createStateResolver<TState>(
-  stateIdentifier: (
-    state: TState | null | undefined,
-    connectionId: string
-  ) => string | undefined | Promise<string | undefined>
+  stateIdentifier: (state: TState | null | undefined, connectionId: string) => string | undefined | Promise<string | undefined>,
 ) {
   const stateCache = new Map<string, string | undefined>();
 
-  const getCacheKey = (
-    connectionId: string,
-    state: TState | null | undefined
-  ): string => {
+  const getCacheKey = (connectionId: string, state: TState | null | undefined): string => {
     if (!state) return connectionId;
     return `${connectionId}:${JSON.stringify(state)}`;
   };
 
-  const resolveAsync = async (
-    state: TState | null | undefined,
-    connectionId: string
-  ): Promise<void> => {
+  const resolveAsync = async (state: TState | null | undefined, connectionId: string): Promise<void> => {
     try {
       const result = stateIdentifier(state, connectionId);
       const resolvedId = result instanceof Promise ? await result : result;
@@ -366,10 +327,7 @@ function createStateResolver<TState>(
   };
 
   return {
-    resolveId: (
-      state: TState | null | undefined,
-      stateManager: ReturnType<typeof createStateManager<TState>>
-    ): string | undefined => {
+    resolveId: (state: TState | null | undefined, stateManager: ReturnType<typeof createStateManager<TState>>): string | undefined => {
       // if state is null or undefined, we can't group it except by connection ID
       if (!state) {
         return undefined; // result is __ungrouped__:connectionId

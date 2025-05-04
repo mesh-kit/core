@@ -58,9 +58,7 @@ export class RecordManager {
    *          and its version number (0 if version data is not found or invalid).
    * @throws {Error} If there is a Redis error or if JSON parsing fails for the record data.
    */
-  async getRecordAndVersion(
-    recordId: string
-  ): Promise<{ record: any | null; version: number }> {
+  async getRecordAndVersion(recordId: string): Promise<{ record: any | null; version: number }> {
     const pipeline = this.redis.pipeline();
     pipeline.get(this.recordKey(recordId));
     pipeline.get(this.recordVersionKey(recordId));
@@ -87,15 +85,11 @@ export class RecordManager {
    *          or null if there were no changes to publish.
    * @throws {Error} If there is a failure reading or writing to Redis, or during patch computation, the promise will be rejected with the error.
    */
-  async publishUpdate(
-    recordId: string,
-    newValue: any
-  ): Promise<{ patch: Operation[]; version: number } | null> {
+  async publishUpdate(recordId: string, newValue: any): Promise<{ patch: Operation[]; version: number } | null> {
     const recordKey = this.recordKey(recordId);
     const versionKey = this.recordVersionKey(recordId);
 
-    const { record: oldValue, version: oldVersion } =
-      await this.getRecordAndVersion(recordId);
+    const { record: oldValue, version: oldVersion } = await this.getRecordAndVersion(recordId);
 
     const patch = jsonpatch.compare(oldValue ?? {}, newValue ?? {});
 

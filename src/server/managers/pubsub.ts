@@ -2,10 +2,7 @@ import type { Redis } from "ioredis";
 import type { Connection } from "../connection";
 import type { ConnectionManager } from "./connection";
 import type { PubSubMessagePayload, RecordUpdatePubSubPayload } from "../types";
-import {
-  PUB_SUB_CHANNEL_PREFIX,
-  RECORD_PUB_SUB_CHANNEL,
-} from "../utils/constants";
+import { PUB_SUB_CHANNEL_PREFIX, RECORD_PUB_SUB_CHANNEL } from "../utils/constants";
 
 export class PubSubManager {
   private subClient: Redis;
@@ -15,9 +12,7 @@ export class PubSubManager {
     string, // recordId
     Map<string, "patch" | "full"> // connectionId -> mode
   >;
-  private getChannelSubscriptions: (
-    channel: string
-  ) => Set<Connection> | undefined;
+  private getChannelSubscriptions: (channel: string) => Set<Connection> | undefined;
   private emitError: (error: Error) => void;
   private _subscriptionPromise!: Promise<void>;
 
@@ -27,7 +22,7 @@ export class PubSubManager {
     connectionManager: ConnectionManager,
     recordSubscriptions: Map<string, Map<string, "patch" | "full">>,
     getChannelSubscriptions: (channel: string) => Set<Connection> | undefined,
-    emitError: (error: Error) => void
+    emitError: (error: Error) => void,
   ) {
     this.subClient = subClient;
     this.instanceId = instanceId;
@@ -49,12 +44,7 @@ export class PubSubManager {
       this.subClient.subscribe(channel, RECORD_PUB_SUB_CHANNEL);
       this.subClient.psubscribe("mesh:presence:updates:*", (err) => {
         if (err) {
-          this.emitError(
-            new Error(
-              `Failed to subscribe to channels ${channel}, ${RECORD_PUB_SUB_CHANNEL}:`,
-              { cause: err }
-            )
-          );
+          this.emitError(new Error(`Failed to subscribe to channels ${channel}, ${RECORD_PUB_SUB_CHANNEL}:`, { cause: err }));
           reject(err);
           return;
         }
@@ -110,9 +100,7 @@ export class PubSubManager {
               }
             });
           } catch (e) {
-            this.emitError(
-              new Error(`Failed to parse presence update: ${message}`)
-            );
+            this.emitError(new Error(`Failed to parse presence update: ${message}`));
           }
         }
       }
@@ -129,20 +117,14 @@ export class PubSubManager {
     try {
       const parsedMessage = JSON.parse(message) as PubSubMessagePayload;
 
-      if (
-        !parsedMessage ||
-        !Array.isArray(parsedMessage.targetConnectionIds) ||
-        !parsedMessage.command ||
-        typeof parsedMessage.command.command !== "string"
-      ) {
+      if (!parsedMessage || !Array.isArray(parsedMessage.targetConnectionIds) || !parsedMessage.command || typeof parsedMessage.command.command !== "string") {
         throw new Error("Invalid message format");
       }
 
       const { targetConnectionIds, command } = parsedMessage;
 
       targetConnectionIds.forEach((connectionId) => {
-        const connection =
-          this.connectionManager.getLocalConnection(connectionId);
+        const connection = this.connectionManager.getLocalConnection(connectionId);
 
         if (connection && !connection.isDead) {
           connection.send(command);
@@ -174,8 +156,7 @@ export class PubSubManager {
       }
 
       subscribers.forEach((mode, connectionId) => {
-        const connection =
-          this.connectionManager.getLocalConnection(connectionId);
+        const connection = this.connectionManager.getLocalConnection(connectionId);
         if (connection && !connection.isDead) {
           if (mode === "patch" && patch) {
             connection.send({
@@ -196,9 +177,7 @@ export class PubSubManager {
         }
       });
     } catch (err) {
-      this.emitError(
-        new Error(`Failed to parse record update message: ${message}`)
-      );
+      this.emitError(new Error(`Failed to parse record update message: ${message}`));
     }
   }
 

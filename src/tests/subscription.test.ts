@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -59,10 +57,7 @@ describe("Redis Channel Subscription", () => {
   test("client cannot subscribe to an unexposed channel", async () => {
     await client1.connect();
 
-    const result = await client1.subscribeChannel(
-      "unexposed:channel",
-      () => {}
-    );
+    const result = await client1.subscribeChannel("unexposed:channel", () => {});
     expect(result.success).toBe(false);
     expect(Array.isArray(result.history)).toBe(true);
     expect(result.history.length).toBe(0);
@@ -199,16 +194,11 @@ describe("Redis Channel Subscription", () => {
     await client1.connect();
     await client2.connect();
 
-    const connections = Object.values(
-      server.connectionManager.getLocalConnections()
-    );
+    const connections = Object.values(server.connectionManager.getLocalConnections());
     const connection1 = connections[0]!;
 
     // only allow the first client to subscribe to the channel
-    server.exposeChannel(
-      "guarded:channel",
-      (connection, channel) => connection.id === connection1.id
-    );
+    server.exposeChannel("guarded:channel", (connection, channel) => connection.id === connection1.id);
 
     const result1 = await client1.subscribeChannel("guarded:channel", () => {});
     const result2 = await client2.subscribeChannel("guarded:channel", () => {});
@@ -247,31 +237,11 @@ describe("Redis Channel Subscription", () => {
     await client1.connect();
 
     const historySize = 10;
-    await server.publishToChannel(
-      "test:channel",
-      "History message 1",
-      historySize
-    );
-    await server.publishToChannel(
-      "test:channel",
-      "History message 2",
-      historySize
-    );
-    await server.publishToChannel(
-      "test:channel",
-      "History message 3",
-      historySize
-    );
-    await server.publishToChannel(
-      "test:channel",
-      "History message 4",
-      historySize
-    );
-    await server.publishToChannel(
-      "test:channel",
-      "History message 5",
-      historySize
-    );
+    await server.publishToChannel("test:channel", "History message 1", historySize);
+    await server.publishToChannel("test:channel", "History message 2", historySize);
+    await server.publishToChannel("test:channel", "History message 3", historySize);
+    await server.publishToChannel("test:channel", "History message 4", historySize);
+    await server.publishToChannel("test:channel", "History message 5", historySize);
 
     const receivedMessages: string[] = [];
 
@@ -280,7 +250,7 @@ describe("Redis Channel Subscription", () => {
       (message) => {
         receivedMessages.push(message);
       },
-      { historyLimit: 3 }
+      { historyLimit: 3 },
     );
 
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -310,11 +280,7 @@ describe("Redis Channel Subscription", () => {
     await server.publishToChannel("test:channel", "Message 3", historyLimit);
     await server.publishToChannel("test:channel", "Message 4", historyLimit);
 
-    const { history } = await client1.subscribeChannel(
-      "test:channel",
-      () => {},
-      { historyLimit }
-    );
+    const { history } = await client1.subscribeChannel("test:channel", () => {}, { historyLimit });
 
     expect(history.length).toBe(historyLimit);
 

@@ -1,11 +1,7 @@
 export interface PersistenceAdapter {
   initialize(): Promise<void>;
   storeMessages(messages: PersistedMessage[]): Promise<void>;
-  getMessages(
-    channel: string,
-    since?: string | number,
-    limit?: number
-  ): Promise<PersistedMessage[]>;
+  getMessages(channel: string, since?: string | number, limit?: number): Promise<PersistedMessage[]>;
   close(): Promise<void>;
 }
 

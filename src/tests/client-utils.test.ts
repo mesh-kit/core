@@ -1,9 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  createDedupedPresenceHandler,
-  type Group,
-  createPresence,
-} from "../client-utils";
+import { createDedupedPresenceHandler, type Group, createPresence } from "../client-utils";
 
 type State = { userId: string; status?: string };
 
@@ -56,10 +52,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
       state: { userId: "user1" },
     });
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.get("user1")!.members.size).toBe(2);
   });
 
@@ -79,10 +72,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
     });
     handler({ type: "leave", connectionId: "conn123" });
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.size).toBe(0);
   });
 
@@ -106,10 +96,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
       state: { userId: "user2" },
     });
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.has("user1")).toBe(false);
     expect(groupMap.has("user2")).toBe(true);
   });
@@ -129,10 +116,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
 
     expect(onUpdate).toHaveBeenCalledTimes(4);
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.size).toBe(1);
     expect(groupMap.get("user1")!.members.size).toBe(2);
   });
@@ -148,10 +132,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
     handler({ type: "join", connectionId: "conn123" });
     handler({ type: "state", connectionId: "conn123", state: null });
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.size).toBe(1);
     const [groupId] = groupMap.keys();
     expect(groupId!.startsWith("__ungrouped__")).toBe(true);
@@ -170,10 +151,7 @@ describe("createDedupedPresenceHandler (state-based)", () => {
     handler({ type: "join", connectionId: "b" });
     handler({ type: "state", connectionId: "b", state: { userId: "user:b" } });
 
-    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<
-      string,
-      Group<State>
-    >;
+    const groupMap = onUpdate.mock.calls.at(-1)![0] as Map<string, Group<State>>;
     expect(groupMap.size).toBe(2);
     expect(groupMap.get("user:a")!.members.has("a")).toBe(true);
     expect(groupMap.get("user:b")!.members.has("b")).toBe(true);
@@ -248,10 +226,7 @@ describe("createPresence (unified API)", () => {
 
   test("reads state from localStorage", async () => {
     const initialState = { userId: "user1", status: "online" };
-    localStorageMock.setItem(
-      "m:presence:test-key",
-      JSON.stringify(initialState)
-    );
+    localStorageMock.setItem("m:presence:test-key", JSON.stringify(initialState));
 
     const presence = createPresence<State>({
       client: mockClient as any,
@@ -277,10 +252,7 @@ describe("createPresence (unified API)", () => {
     const newState = { userId: "user1", status: "typing" };
     await presence.publish(newState);
 
-    expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      "m:presence:test-key",
-      JSON.stringify(newState)
-    );
+    expect(localStorageMock.setItem).toHaveBeenCalledWith("m:presence:test-key", JSON.stringify(newState));
 
     expect(mockClient.publishPresenceState).toHaveBeenCalledWith("test-room", {
       state: newState,
@@ -338,10 +310,7 @@ describe("createPresence (unified API)", () => {
     const newState = { userId: "user1", status: "typing" };
     await presence.publish(newState);
 
-    expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      "m:presence:test-key",
-      JSON.stringify(newState)
-    );
+    expect(localStorageMock.setItem).toHaveBeenCalledWith("m:presence:test-key", JSON.stringify(newState));
 
     expect(mockClient.publishPresenceState).toHaveBeenCalledWith("test-room", {
       state: newState,
@@ -377,9 +346,6 @@ describe("createPresence (unified API)", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(stateIdentifierSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "user1" }),
-      testConnectionId
-    );
+    expect(stateIdentifierSpy).toHaveBeenCalledWith(expect.objectContaining({ userId: "user1" }), testConnectionId);
   });
 });

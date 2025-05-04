@@ -62,8 +62,7 @@ export function createDedupedPresenceHandler<TState>(config: {
   }
 
   function updateState(connectionId: string, state: TState | null) {
-    const newGroupId =
-      config.getGroupIdFromState(state) ?? `__ungrouped__:${connectionId}`;
+    const newGroupId = config.getGroupIdFromState(state) ?? `__ungrouped__:${connectionId}`;
     const oldGroupId = memberToGroup.get(connectionId);
 
     if (oldGroupId === newGroupId) {
@@ -101,17 +100,13 @@ export function createDedupedPresenceHandler<TState>(config: {
     | { type: "state"; connectionId: string; state?: TState | null };
 
   type Handler = ((update: Update) => void) & {
-    init: (
-      present: string[],
-      states: Record<string, TState | null | undefined>
-    ) => void;
+    init: (present: string[], states: Record<string, TState | null | undefined>) => void;
   };
 
   const handler: Handler = ((update: Update) => {
     if (update.type === "join") join(update.connectionId);
     else if (update.type === "leave") leave(update.connectionId);
-    else if (update.type === "state")
-      updateState(update.connectionId, update.state ?? null);
+    else if (update.type === "state") updateState(update.connectionId, update.state ?? null);
   }) as Handler;
 
   handler.init = (present, states) => {

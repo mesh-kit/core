@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -62,10 +60,7 @@ describe("Record Subscription", () => {
     await client1.connect();
 
     const callback = vi.fn();
-    const { success, record, version } = await client1.subscribeRecord(
-      recordId,
-      callback
-    );
+    const { success, record, version } = await client1.subscribeRecord(recordId, callback);
 
     expect(success).toBe(true);
     expect(version).toBe(1);
@@ -83,10 +78,7 @@ describe("Record Subscription", () => {
   test("client cannot subscribe to an unexposed record", async () => {
     await client1.connect();
     const callback = vi.fn();
-    const { success, record, version } = await client1.subscribeRecord(
-      "unexposed:record",
-      callback
-    );
+    const { success, record, version } = await client1.subscribeRecord("unexposed:record", callback);
 
     expect(success).toBe(false);
     expect(version).toBe(0);
@@ -101,10 +93,7 @@ describe("Record Subscription", () => {
     const connections = server.connectionManager.getLocalConnections();
     const connection1Id = connections[0]?.id;
 
-    server.exposeRecord(
-      "guarded:record",
-      (connection, recId) => connection.id === connection1Id
-    );
+    server.exposeRecord("guarded:record", (connection, recId) => connection.id === connection1Id);
 
     const callback1 = vi.fn();
     const result1 = await client1.subscribeRecord("guarded:record", callback1);
@@ -310,18 +299,14 @@ describe("Record Subscription", () => {
     expect(updates[2]).toEqual({ recordId, full: data4, version: 4 });
 
     // verify unsubscribe and subscribe were called for resync
-    expect(commandSpy).toHaveBeenCalledWith(
-      "mesh/unsubscribe-record",
-      { recordId },
-      30000
-    );
+    expect(commandSpy).toHaveBeenCalledWith("mesh/unsubscribe-record", { recordId }, 30000);
     expect(commandSpy).toHaveBeenCalledWith(
       "mesh/subscribe-record",
       {
         recordId,
         mode: "patch",
       },
-      30000
+      30000,
     );
   });
 
@@ -365,9 +350,7 @@ describe("Record Subscription", () => {
     });
 
     // verify server state
-    const { record, version } = await server.recordManager.getRecordAndVersion(
-      recordId
-    );
+    const { record, version } = await server.recordManager.getRecordAndVersion(recordId);
     expect(record).toEqual(initialData);
     expect(version).toBe(1);
   });
@@ -381,9 +364,7 @@ describe("Record Subscription", () => {
     expect(success).toBe(false);
 
     // verify server state hasn't changed
-    const { record, version } = await server.recordManager.getRecordAndVersion(
-      recordId
-    );
+    const { record, version } = await server.recordManager.getRecordAndVersion(recordId);
     expect(record).toBeNull();
     expect(version).toBe(0);
   });
@@ -396,9 +377,7 @@ describe("Record Subscription", () => {
     const success = await client1.publishRecordUpdate(recordId, initialData);
     expect(success).toBe(false);
 
-    const { record, version } = await server.recordManager.getRecordAndVersion(
-      recordId
-    );
+    const { record, version } = await server.recordManager.getRecordAndVersion(recordId);
     expect(record).toBeNull();
     expect(version).toBe(0);
   });
@@ -412,10 +391,7 @@ describe("Record Subscription", () => {
     const connection1Id = connections[0]?.id;
 
     // only client1 can write this record
-    server.exposeWritableRecord(
-      recordId,
-      (connection, recId) => connection.id === connection1Id
-    );
+    server.exposeWritableRecord(recordId, (connection, recId) => connection.id === connection1Id);
 
     const data1 = { value: "from client 1" };
     const success1 = await client1.publishRecordUpdate(recordId, data1);
@@ -498,10 +474,7 @@ describe("Record Subscription", () => {
       updates.push(update);
     });
 
-    const { success, record, version } = await client1.subscribeRecord(
-      recordId,
-      callback
-    );
+    const { success, record, version } = await client1.subscribeRecord(recordId, callback);
 
     expect(success).toBe(true);
     expect(version).toBe(1);
@@ -525,9 +498,7 @@ describe("Record Subscription", () => {
       version: 2,
     });
 
-    const serverState = await server.recordManager.getRecordAndVersion(
-      recordId
-    );
+    const serverState = await server.recordManager.getRecordAndVersion(recordId);
     expect(serverState.record).toEqual(updatedValue);
     expect(serverState.version).toBe(2);
   });
@@ -629,10 +600,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data1 = { message: "hello from client A" };
     // client A writes, should propagate to client B via server B
-    const writeSuccess = await clientA.publishRecordUpdate(
-      writableRecordId,
-      data1
-    );
+    const writeSuccess = await clientA.publishRecordUpdate(writableRecordId, data1);
     expect(writeSuccess).toBe(true);
 
     await wait(150);
@@ -681,10 +649,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data1 = { count: 1 };
     // client A writes first update
-    let writeSuccess = await clientA.publishRecordUpdate(
-      writableRecordId,
-      data1
-    );
+    let writeSuccess = await clientA.publishRecordUpdate(writableRecordId, data1);
     expect(writeSuccess).toBe(true);
 
     await wait(150);

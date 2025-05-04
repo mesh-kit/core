@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -78,10 +76,7 @@ describe("Resubscription after reconnect", () => {
     });
 
     // verify channel subscription is restored by sending a message
-    await server.publishToChannel(
-      "test:channel",
-      "Test message after reconnect"
-    );
+    await server.publishToChannel("test:channel", "Test message after reconnect");
 
     // verify record subscription is restored by updating the record
     await server.publishRecordUpdate("test:record", { value: "updated" });
@@ -99,8 +94,6 @@ describe("Resubscription after reconnect", () => {
 
     // ensure latest record update exists
     const latestRecordUpdate = recordUpdates[recordUpdates.length - 1];
-    expect(
-      latestRecordUpdate.full || latestRecordUpdate.recordId
-    ).toBeDefined();
+    expect(latestRecordUpdate.full || latestRecordUpdate.recordId).toBeDefined();
   });
 });

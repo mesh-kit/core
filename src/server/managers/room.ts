@@ -39,12 +39,8 @@ export class RoomManager {
    * @returns {Promise<boolean>} A promise that resolves to true if the connection is in the room, false otherwise.
    * @throws {Error} If there is an issue communicating with Redis or processing the request, the promise may be rejected with an error.
    */
-  async connectionIsInRoom(
-    roomName: string,
-    connection: Connection | string
-  ): Promise<boolean> {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+  async connectionIsInRoom(roomName: string, connection: Connection | string): Promise<boolean> {
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     return !!(await this.redis.sismember(this.roomKey(roomName), connectionId));
   }
 
@@ -57,12 +53,8 @@ export class RoomManager {
    * @returns {Promise<void>} A promise that resolves when the operation is complete.
    * @throws {Error} If an error occurs while updating Redis, the promise will be rejected with the error.
    */
-  async addToRoom(
-    roomName: string,
-    connection: Connection | string
-  ): Promise<void> {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+  async addToRoom(roomName: string, connection: Connection | string): Promise<void> {
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     await this.redis.sadd(this.roomKey(roomName), connectionId);
     await this.redis.sadd(this.connectionsRoomKey(connectionId), roomName);
   }
@@ -74,11 +66,8 @@ export class RoomManager {
    * @returns {Promise<string[]>} A promise that resolves to an array of room names associated with the connection.
    * @throws {Error} If the underlying Redis operation fails, the promise will be rejected with an error.
    */
-  async getRoomsForConnection(
-    connection: Connection | string
-  ): Promise<string[]> {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+  async getRoomsForConnection(connection: Connection | string): Promise<string[]> {
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     return await this.redis.smembers(this.connectionsRoomKey(connectionId));
   }
 
@@ -103,12 +92,8 @@ export class RoomManager {
    * @returns {Promise<void>} A promise that resolves when the removal is complete.
    * @throws {Error} If there is an error executing the Redis pipeline, the promise will be rejected with the error.
    */
-  async removeFromRoom(
-    roomName: string,
-    connection: Connection | string
-  ): Promise<void> {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
+  async removeFromRoom(roomName: string, connection: Connection | string): Promise<void> {
+    const connectionId = typeof connection === "string" ? connection : connection.id;
     const pipeline = this.redis.pipeline();
     pipeline.srem(this.roomKey(roomName), connectionId);
     pipeline.srem(this.connectionsRoomKey(connectionId), roomName);
@@ -123,11 +108,8 @@ export class RoomManager {
    * @throws {Error} If an error occurs during Redis operations, the promise will be rejected with the error.
    */
   async removeFromAllRooms(connection: Connection | string) {
-    const connectionId =
-      typeof connection === "string" ? connection : connection.id;
-    const rooms = await this.redis.smembers(
-      this.connectionsRoomKey(connectionId)
-    );
+    const connectionId = typeof connection === "string" ? connection : connection.id;
+    const rooms = await this.redis.smembers(this.connectionsRoomKey(connectionId));
     const pipeline = this.redis.pipeline();
     for (const room of rooms) {
       pipeline.srem(this.roomKey(room), connectionId);
@@ -165,9 +147,7 @@ export class RoomManager {
    * @throws {Error} If an error occurs while interacting with Redis, the promise will be rejected with the error.
    */
   async cleanupConnection(connection: Connection): Promise<void> {
-    const rooms = await this.redis.smembers(
-      this.connectionsRoomKey(connection.id)
-    );
+    const rooms = await this.redis.smembers(this.connectionsRoomKey(connection.id));
     const pipeline = this.redis.pipeline();
     for (const room of rooms) {
       pipeline.srem(this.roomKey(room), connection.id);
@@ -186,11 +166,7 @@ export class RoomManager {
    * @throws {Error} If an error occurs while storing metadata in Redis, the promise will be rejected with the error.
    */
   async setMetadata(roomName: string, metadata: any): Promise<void> {
-    await this.redis.hset(
-      this.roomMetadataKey(roomName),
-      "data",
-      JSON.stringify(metadata)
-    );
+    await this.redis.hset(this.roomMetadataKey(roomName), "data", JSON.stringify(metadata));
   }
 
   /**

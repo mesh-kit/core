@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -95,15 +93,11 @@ describe.sequential("Multiple instances", () => {
       server.exposeCommand("join-room", async (ctx) => {
         await server.addToRoom(ctx.payload.room, ctx.connection);
         return { joined: true };
-      })
+      }),
     );
 
     serverA.exposeCommand("broadcast-room", async (ctx) => {
-      await serverA.broadcastRoom(
-        ctx.payload.room,
-        "room-message",
-        ctx.payload.message
-      );
+      await serverA.broadcastRoom(ctx.payload.room, "room-message", ctx.payload.message);
       return { sent: true };
     });
 

@@ -10,21 +10,13 @@ export class ChannelManager {
   private pubClient: Redis;
   private subClient: Redis;
   private exposedChannels: ChannelPattern[] = [];
-  private channelGuards: Map<
-    ChannelPattern,
-    (connection: Connection, channel: string) => Promise<boolean> | boolean
-  > = new Map();
+  private channelGuards: Map<ChannelPattern, (connection: Connection, channel: string) => Promise<boolean> | boolean> = new Map();
   private channelSubscriptions: { [channel: string]: Set<Connection> } = {};
   private emitError: (error: Error) => void;
   private messageStream: MessageStream;
   private persistenceManager?: PersistenceManager;
 
-  constructor(
-    redis: Redis,
-    pubClient: Redis,
-    subClient: Redis,
-    emitError: (error: Error) => void
-  ) {
+  constructor(redis: Redis, pubClient: Redis, subClient: Redis, emitError: (error: Error) => void) {
     this.redis = redis;
     this.pubClient = pubClient;
     this.subClient = subClient;
@@ -51,13 +43,7 @@ export class ChannelManager {
    *   a boolean or a promise that resolves to a boolean indicating whether access is allowed.
    * @returns {void}
    */
-  exposeChannel(
-    channel: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      channel: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeChannel(channel: ChannelPattern, guard?: (connection: Connection, channel: string) => Promise<boolean> | boolean): void {
     this.exposedChannels.push(channel);
     if (guard) {
       this.channelGuards.set(channel, guard);
@@ -71,13 +57,8 @@ export class ChannelManager {
    * @param connection - The connection requesting access
    * @returns A promise that resolves to true if the channel is exposed and the connection has access
    */
-  async isChannelExposed(
-    channel: string,
-    connection: Connection
-  ): Promise<boolean> {
-    const matchedPattern = this.exposedChannels.find((pattern) =>
-      typeof pattern === "string" ? pattern === channel : pattern.test(channel)
-    );
+  async isChannelExposed(channel: string, connection: Connection): Promise<boolean> {
+    const matchedPattern = this.exposedChannels.find((pattern) => (typeof pattern === "string" ? pattern === channel : pattern.test(channel)));
 
     if (!matchedPattern) {
       return false;
@@ -107,12 +88,7 @@ export class ChannelManager {
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
    * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `rpush`, `ltrim`, `publish`) fail.
    */
-  async publishToChannel(
-    channel: string,
-    message: any,
-    history: number = 0,
-    instanceId: string
-  ): Promise<void> {
+  async publishToChannel(channel: string, message: any, history: number = 0, instanceId: string): Promise<void> {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
       await this.pubClient.rpush(`mesh:history:${channel}`, message);
@@ -204,20 +180,12 @@ export class ChannelManager {
    * @param since - Optional cursor (timestamp or message ID) to retrieve messages after
    * @returns A promise that resolves to an array of history items
    */
-  async getChannelHistory(
-    channel: string,
-    limit: number,
-    since?: string | number
-  ): Promise<string[]> {
+  async getChannelHistory(channel: string, limit: number, since?: string | number): Promise<string[]> {
     // if persistence is enabled for this channel and we have a since parameter,
     // use the persistence system to get the history
     if (this.persistenceManager && since !== undefined) {
       try {
-        const messages = await this.persistenceManager.getMessages(
-          channel,
-          since,
-          limit
-        );
+        const messages = await this.persistenceManager.getMessages(channel, since, limit);
         return messages.map((msg: PersistedMessage) => msg.message);
       } catch (err) {
         // if persistence fails or isn't enabled for this channel, fall back to Redis
@@ -236,11 +204,7 @@ export class ChannelManager {
    * @param since Optional cursor (timestamp or message ID) to retrieve messages after
    * @param limit Maximum number of messages to retrieve
    */
-  async getPersistedMessages(
-    channel: string,
-    since?: string | number,
-    limit?: number
-  ): Promise<PersistedMessage[]> {
+  async getPersistedMessages(channel: string, since?: string | number, limit?: number): Promise<PersistedMessage[]> {
     if (!this.persistenceManager) {
       throw new Error("Persistence not enabled");
     }

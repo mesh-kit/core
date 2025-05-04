@@ -25,11 +25,7 @@ export class CommandManager {
    * @param {SocketMiddleware[]} [middlewares=[]] - An optional array of middleware functions to apply to the command. Defaults to an empty array.
    * @throws {Error} May throw an error if the command registration or middleware addition fails.
    */
-  exposeCommand<T = any, U = any>(
-    command: string,
-    callback: (context: MeshContext<T>) => Promise<U> | U,
-    middlewares: SocketMiddleware[] = []
-  ) {
+  exposeCommand<T = any, U = any>(command: string, callback: (context: MeshContext<T>) => Promise<U> | U, middlewares: SocketMiddleware[] = []) {
     this.commands[command] = callback;
 
     if (middlewares.length > 0) {
@@ -56,10 +52,7 @@ export class CommandManager {
    * @param {SocketMiddleware[]} middlewares - An array of middleware functions to be added to the command.
    * @returns {void}
    */
-  useMiddlewareWithCommand(
-    command: string,
-    middlewares: SocketMiddleware[]
-  ): void {
+  useMiddlewareWithCommand(command: string, middlewares: SocketMiddleware[]): void {
     if (middlewares.length) {
       this.middlewares[command] = this.middlewares[command] || [];
       this.middlewares[command] = middlewares.concat(this.middlewares[command]);
@@ -75,22 +68,12 @@ export class CommandManager {
    * @param connection - The connection that initiated the command
    * @param server - The server instance
    */
-  async runCommand(
-    id: number,
-    commandName: string,
-    payload: any,
-    connection: Connection,
-    server: any
-  ) {
+  async runCommand(id: number, commandName: string, payload: any, connection: Connection, server: any) {
     const context = new MeshContext(server, commandName, connection, payload);
 
     try {
       if (!this.commands[commandName]) {
-        throw new CodeError(
-          `Command "${commandName}" not found`,
-          "ENOTFOUND",
-          "CommandError"
-        );
+        throw new CodeError(`Command "${commandName}" not found`, "ENOTFOUND", "CommandError");
       }
 
       if (this.globalMiddlewares.length) {

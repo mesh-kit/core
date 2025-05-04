@@ -22,9 +22,7 @@ export type PresenceUpdate =
       timestamp?: number;
     };
 
-export type PresenceUpdateCallback = (
-  update: PresenceUpdate
-) => void | Promise<void>;
+export type PresenceUpdateCallback = (update: PresenceUpdate) => void | Promise<void>;
 
 export type MeshClientOptions = Partial<{
   /**
@@ -90,12 +88,7 @@ export class MeshClient extends EventEmitter {
   private recordSubscriptions: Map<
     string, // recordId
     {
-      callback: (update: {
-        recordId: string;
-        full?: any;
-        patch?: Operation[];
-        version: number;
-      }) => void | Promise<void>;
+      callback: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
       localVersion: number;
       mode: "patch" | "full";
     }
@@ -164,14 +157,9 @@ export class MeshClient extends EventEmitter {
 
     // if we've been inactive for longer than the ping timeout but think we're online,
     // we might have missed pings from the server
-    if (
-      timeSinceActivity > this.options.pingTimeout &&
-      this._status === Status.ONLINE
-    ) {
+    if (timeSinceActivity > this.options.pingTimeout && this._status === Status.ONLINE) {
       this.command("mesh/noop", {}, 5000).catch(() => {
-        clientLogger.info(
-          `No activity for ${timeSinceActivity}ms. Tried reaching server and failed. Forcing reconnect`
-        );
+        clientLogger.info(`No activity for ${timeSinceActivity}ms. Tried reaching server and failed. Forcing reconnect`);
         this.forceReconnect();
       });
     }
@@ -187,9 +175,7 @@ export class MeshClient extends EventEmitter {
    */
   private setupVisibilityHandling(): void {
     try {
-      this._isBrowser =
-        !!(global as any).document &&
-        typeof (global as any).document.addEventListener === "function";
+      this._isBrowser = !!(global as any).document && typeof (global as any).document.addEventListener === "function";
 
       if (!this._isBrowser) {
         return;
@@ -203,12 +189,7 @@ export class MeshClient extends EventEmitter {
       // update activity time on any user interaction
       try {
         const doc = (global as any).document;
-        const events = [
-          "mousedown",
-          "keydown",
-          "touchstart",
-          "visibilitychange",
-        ];
+        const events = ["mousedown", "keydown", "touchstart", "visibilitychange"];
 
         events.forEach((eventName) => {
           doc.addEventListener(eventName, () => {
@@ -216,16 +197,11 @@ export class MeshClient extends EventEmitter {
             //   Date.now() - this._lastActivityTime > this.options.pingTimeout;
             this._lastActivityTime = Date.now();
 
-            if (
-              eventName === "visibilitychange" &&
-              doc.visibilityState === "visible"
-            ) {
+            if (eventName === "visibilitychange" && doc.visibilityState === "visible") {
               // send noop. if it fails for any reason, force reconnect
               this.command("mesh/noop", {}, 5000)
                 .then(() => {
-                  clientLogger.info(
-                    "Tab is visible again, no reconnect needed"
-                  );
+                  clientLogger.info("Tab is visible again, no reconnect needed");
 
                   this.emit("republish");
                 })
@@ -294,13 +270,7 @@ export class MeshClient extends EventEmitter {
       } else if (data.command === "mesh/subscription-message") {
         this.handleChannelMessage(data.payload);
       } else {
-        const systemCommands = [
-          "ping",
-          "pong",
-          "latency",
-          "latency:request",
-          "latency:response",
-        ];
+        const systemCommands = ["ping", "pong", "latency", "latency:request", "latency:response"];
         if (data.command && !systemCommands.includes(data.command)) {
           this.emit(data.command, data.payload);
         }
@@ -337,10 +307,7 @@ export class MeshClient extends EventEmitter {
       return Promise.resolve();
     }
 
-    if (
-      this._status === Status.CONNECTING ||
-      this._status === Status.RECONNECTING
-    ) {
+    if (this._status === Status.CONNECTING || this._status === Status.RECONNECTING) {
       return new Promise((resolve, reject) => {
         const onConnect = () => {
           this.removeListener("connect", onConnect);
@@ -388,13 +355,7 @@ export class MeshClient extends EventEmitter {
 
         this.socket.onerror = (error) => {
           this._status = Status.OFFLINE;
-          reject(
-            new CodeError(
-              "WebSocket connection error",
-              "ECONNECTION",
-              "ConnectionError"
-            )
-          );
+          reject(new CodeError("WebSocket connection error", "ECONNECTION", "ConnectionError"));
         };
       } catch (error) {
         this._status = Status.OFFLINE;
@@ -540,11 +501,7 @@ export class MeshClient extends EventEmitter {
    * @param {number} expiresIn - Timeout in milliseconds.
    * @returns {Promise<unknown>} A promise that resolves with the command result.
    */
-  command(
-    command: string,
-    payload?: any,
-    expiresIn: number = 30000
-  ): Promise<any> {
+  command(command: string, payload?: any, expiresIn: number = 30000): Promise<any> {
     if (this._status !== Status.ONLINE) {
       return this.connect()
         .then(() => this.connection.command(command, payload, expiresIn))
@@ -570,10 +527,7 @@ export class MeshClient extends EventEmitter {
     }
   }
 
-  private async handleChannelMessage(payload: {
-    channel: string;
-    message: string;
-  }) {
+  private async handleChannelMessage(payload: { channel: string; message: string }) {
     const { channel, message } = payload;
     const subscription = this.channelSubscriptions.get(channel);
 
@@ -586,12 +540,7 @@ export class MeshClient extends EventEmitter {
     }
   }
 
-  private async handleRecordUpdate(payload: {
-    recordId: string;
-    full?: any;
-    patch?: Operation[];
-    version: number;
-  }) {
+  private async handleRecordUpdate(payload: { recordId: string; full?: any; patch?: Operation[]; version: number }) {
     const { recordId, full, patch, version } = payload;
     const subscription = this.recordSubscriptions.get(recordId);
 
@@ -603,9 +552,7 @@ export class MeshClient extends EventEmitter {
       if (version !== subscription.localVersion + 1) {
         // desync
         clientLogger.warn(
-          `Desync detected for record ${recordId}. Expected version ${
-            subscription.localVersion + 1
-          }, got ${version}. Resubscribing to request full record.`
+          `Desync detected for record ${recordId}. Expected version ${subscription.localVersion + 1}, got ${version}. Resubscribing to request full record.`,
         );
         // unsubscribe and resubscribe to force a full update
         await this.unsubscribeRecord(recordId);
@@ -643,7 +590,7 @@ export class MeshClient extends EventEmitter {
   subscribeChannel(
     channel: string,
     callback: (message: string) => void | Promise<void>,
-    options?: { historyLimit?: number; since?: string | number }
+    options?: { historyLimit?: number; since?: string | number },
   ): Promise<{ success: boolean; history: string[] }> {
     this.channelSubscriptions.set(channel, {
       callback,
@@ -693,10 +640,7 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<{ success: boolean; history: string[] }>} A promise that resolves with the retrieval result,
    *          including a success flag and an array of historical messages.
    */
-  async getChannelHistory(
-    channel: string,
-    options?: { limit?: number; since?: string | number }
-  ): Promise<{ success: boolean; history: string[] }> {
+  async getChannelHistory(channel: string, options?: { limit?: number; since?: string | number }): Promise<{ success: boolean; history: string[] }> {
     try {
       const result = await this.command("mesh/get-channel-history", {
         channel,
@@ -709,10 +653,7 @@ export class MeshClient extends EventEmitter {
         history: result.history || [],
       };
     } catch (error) {
-      clientLogger.error(
-        `Failed to get history for channel ${channel}:`,
-        error
-      );
+      clientLogger.error(`Failed to get history for channel ${channel}:`, error);
       return { success: false, history: [] };
     }
   }
@@ -727,13 +668,8 @@ export class MeshClient extends EventEmitter {
    */
   async subscribeRecord(
     recordId: string,
-    callback: (update: {
-      recordId: string;
-      full?: any;
-      patch?: Operation[];
-      version: number;
-    }) => void | Promise<void>,
-    options?: { mode?: "patch" | "full" }
+    callback: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>,
+    options?: { mode?: "patch" | "full" },
   ): Promise<{ success: boolean; record: any | null; version: number }> {
     const mode = options?.mode ?? "full";
 
@@ -784,10 +720,7 @@ export class MeshClient extends EventEmitter {
       }
       return success;
     } catch (error) {
-      clientLogger.error(
-        `Failed to unsubscribe from record ${recordId}:`,
-        error
-      );
+      clientLogger.error(`Failed to unsubscribe from record ${recordId}:`, error);
       return false;
     }
   }
@@ -807,10 +740,7 @@ export class MeshClient extends EventEmitter {
       });
       return result.success === true;
     } catch (error) {
-      clientLogger.error(
-        `Failed to publish update for record ${recordId}:`,
-        error
-      );
+      clientLogger.error(`Failed to publish update for record ${recordId}:`, error);
       return false;
     }
   }
@@ -824,10 +754,7 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<{ success: boolean; present: string[] }>} A promise that resolves with an object indicating whether joining was successful and the list of present members.
    * @throws {Error} If an error occurs during the join or subscription process, the promise may be rejected with the error.
    */
-  async joinRoom(
-    roomName: string,
-    onPresenceUpdate?: PresenceUpdateCallback
-  ): Promise<{ success: boolean; present: string[] }> {
+  async joinRoom(roomName: string, onPresenceUpdate?: PresenceUpdateCallback): Promise<{ success: boolean; present: string[] }> {
     const joinResult = await this.command("mesh/join-room", { roomName });
 
     if (!joinResult.success) {
@@ -840,10 +767,7 @@ export class MeshClient extends EventEmitter {
       return { success: true, present: joinResult.present || [] };
     }
 
-    const { success: subSuccess, present } = await this.subscribePresence(
-      roomName,
-      onPresenceUpdate
-    );
+    const { success: subSuccess, present } = await this.subscribePresence(roomName, onPresenceUpdate);
     return { success: subSuccess, present };
   }
 
@@ -877,7 +801,7 @@ export class MeshClient extends EventEmitter {
    */
   async subscribePresence(
     roomName: string,
-    callback: PresenceUpdateCallback
+    callback: PresenceUpdateCallback,
   ): Promise<{
     success: boolean;
     present: string[];
@@ -902,10 +826,7 @@ export class MeshClient extends EventEmitter {
         states: result.states || {},
       };
     } catch (error) {
-      clientLogger.error(
-        `Failed to subscribe to presence for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`Failed to subscribe to presence for room ${roomName}:`, error);
       return { success: false, present: [] };
     }
   }
@@ -926,10 +847,7 @@ export class MeshClient extends EventEmitter {
       }
       return success;
     } catch (error) {
-      clientLogger.error(
-        `Failed to unsubscribe from presence for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`Failed to unsubscribe from presence for room ${roomName}:`, error);
       return false;
     }
   }
@@ -949,12 +867,9 @@ export class MeshClient extends EventEmitter {
       state: Record<string, any>;
       expireAfter?: number; // optional, in milliseconds
       silent?: boolean; // optional, if true, don't emit presence updates
-    }
+    },
   ): Promise<boolean> {
-    clientLogger.info(
-      `publishPresenceState (silent=${Boolean(options.silent)}): ${roomName}`,
-      options.state
-    );
+    clientLogger.info(`publishPresenceState (silent=${Boolean(options.silent)}): ${roomName}`, options.state);
     try {
       return await this.command("mesh/publish-presence-state", {
         roomName,
@@ -963,10 +878,7 @@ export class MeshClient extends EventEmitter {
         silent: options.silent,
       });
     } catch (error) {
-      clientLogger.error(
-        `Failed to publish presence state for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`Failed to publish presence state for room ${roomName}:`, error);
       return false;
     }
   }
@@ -983,10 +895,7 @@ export class MeshClient extends EventEmitter {
         roomName,
       });
     } catch (error) {
-      clientLogger.error(
-        `Failed to clear presence state for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`Failed to clear presence state for room ${roomName}:`, error);
       return false;
     }
   }
@@ -1038,10 +947,7 @@ export class MeshClient extends EventEmitter {
       }
     } catch (error) {
       const idText = connectionId ? ` ${connectionId}` : "";
-      clientLogger.error(
-        `Failed to get metadata for connection${idText}:`,
-        error
-      );
+      clientLogger.error(`Failed to get metadata for connection${idText}:`, error);
       return null;
     }
   }
@@ -1059,15 +965,8 @@ export class MeshClient extends EventEmitter {
       const handler = this.presenceSubscriptions.get(roomName);
       if (!handler) return false;
 
-      const result = await this.command(
-        "mesh/get-presence-state",
-        { roomName },
-        5000
-      ).catch((err) => {
-        clientLogger.error(
-          `Failed to get presence state for room ${roomName}:`,
-          err
-        );
+      const result = await this.command("mesh/get-presence-state", { roomName }, 5000).catch((err) => {
+        clientLogger.error(`Failed to get presence state for room ${roomName}:`, err);
         return { success: false };
       });
 
@@ -1086,10 +985,7 @@ export class MeshClient extends EventEmitter {
 
       return true;
     } catch (error) {
-      clientLogger.error(
-        `(forcePresenceUpdate) Failed to force presence update for room ${roomName}:`,
-        error
-      );
+      clientLogger.error(`(forcePresenceUpdate) Failed to force presence update for room ${roomName}:`, error);
       return false;
     }
   }
@@ -1155,18 +1051,16 @@ export class MeshClient extends EventEmitter {
 
     try {
       // rooms
-      const roomPromises = Array.from(this.joinedRooms.entries()).map(
-        async ([roomName, presenceCallback]) => {
-          try {
-            clientLogger.info(`Rejoining room: ${roomName}`);
-            await this.joinRoom(roomName, presenceCallback);
-            return { roomName, success: true };
-          } catch (error) {
-            clientLogger.error(`Failed to rejoin room ${roomName}:`, error);
-            return { roomName, success: false };
-          }
+      const roomPromises = Array.from(this.joinedRooms.entries()).map(async ([roomName, presenceCallback]) => {
+        try {
+          clientLogger.info(`Rejoining room: ${roomName}`);
+          await this.joinRoom(roomName, presenceCallback);
+          return { roomName, success: true };
+        } catch (error) {
+          clientLogger.error(`Failed to rejoin room ${roomName}:`, error);
+          return { roomName, success: false };
         }
-      );
+      });
 
       // wait for rooms to be rejoined first
       const roomResults = await Promise.allSettled(roomPromises);
@@ -1179,43 +1073,31 @@ export class MeshClient extends EventEmitter {
                 roomName: string;
                 success: boolean;
               }>
-            ).value.roomName
+            ).value.roomName,
         );
 
-      clientLogger.info(
-        `Rejoined ${successfulRooms.length}/${roomPromises.length} rooms`
-      );
+      clientLogger.info(`Rejoined ${successfulRooms.length}/${roomPromises.length} rooms`);
 
       // records
-      const recordPromises = Array.from(this.recordSubscriptions.entries()).map(
-        async ([recordId, { callback, mode }]) => {
-          try {
-            clientLogger.info(`Resubscribing to record: ${recordId}`);
-            await this.subscribeRecord(recordId, callback, { mode });
-            return true;
-          } catch (error) {
-            clientLogger.error(
-              `Failed to resubscribe to record ${recordId}:`,
-              error
-            );
-            return false;
-          }
+      const recordPromises = Array.from(this.recordSubscriptions.entries()).map(async ([recordId, { callback, mode }]) => {
+        try {
+          clientLogger.info(`Resubscribing to record: ${recordId}`);
+          await this.subscribeRecord(recordId, callback, { mode });
+          return true;
+        } catch (error) {
+          clientLogger.error(`Failed to resubscribe to record ${recordId}:`, error);
+          return false;
         }
-      );
+      });
 
       // channels
-      const channelPromises = Array.from(
-        this.channelSubscriptions.entries()
-      ).map(async ([channel, { callback, historyLimit }]) => {
+      const channelPromises = Array.from(this.channelSubscriptions.entries()).map(async ([channel, { callback, historyLimit }]) => {
         try {
           clientLogger.info(`Resubscribing to channel: ${channel}`);
           await this.subscribeChannel(channel, callback, { historyLimit });
           return true;
         } catch (error) {
-          clientLogger.error(
-            `Failed to resubscribe to channel ${channel}:`,
-            error
-          );
+          clientLogger.error(`Failed to resubscribe to channel ${channel}:`, error);
           return false;
         }
       });
@@ -1227,40 +1109,25 @@ export class MeshClient extends EventEmitter {
         ...channelPromises,
       ]);
 
-      const successCount = results.filter(
-        (r) => r.status === "fulfilled" && r.value === true
-      ).length;
+      const successCount = results.filter((r) => r.status === "fulfilled" && r.value === true).length;
 
-      clientLogger.info(
-        `Resubscribed to ${successfulRooms.length + successCount}/${
-          roomPromises.length + results.length
-        } total subscriptions`
-      );
+      clientLogger.info(`Resubscribed to ${successfulRooms.length + successCount}/${roomPromises.length + results.length} total subscriptions`);
 
       // after all resubscriptions are complete,
       // force a presence update for each room
       if (successfulRooms.length > 0) {
-        clientLogger.info(
-          "Forcing presence update for all rooms after reconnect"
-        );
+        clientLogger.info("Forcing presence update for all rooms after reconnect");
 
         for (const roomName of successfulRooms) {
           try {
             const updated = await this.forcePresenceUpdate(roomName);
             if (updated) {
-              clientLogger.info(
-                `Successfully refreshed presence for room ${roomName}`
-              );
+              clientLogger.info(`Successfully refreshed presence for room ${roomName}`);
             } else {
-              clientLogger.warn(
-                `Failed to refresh presence for room ${roomName} (ARGH)`
-              );
+              clientLogger.warn(`Failed to refresh presence for room ${roomName} (ARGH)`);
             }
           } catch (err) {
-            clientLogger.error(
-              `Error refreshing presence for room ${roomName}:`,
-              err
-            );
+            clientLogger.error(`Error refreshing presence for room ${roomName}:`, err);
           }
 
           // Small delay between room updates

@@ -1,8 +1,4 @@
-import type {
-  PersistenceAdapter,
-  PersistedMessage,
-  PersistenceAdapterOptions,
-} from "./types";
+import type { PersistenceAdapter, PersistedMessage, PersistenceAdapterOptions } from "./types";
 import { serverLogger } from "../../common/logger";
 
 type SQLiteDatabase = any;
@@ -27,34 +23,24 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
         import("sqlite3")
           .then((sqlite3) => {
             const { Database } = sqlite3;
-            this.db = new Database(
-              this.options.filename as string,
-              (err: any) => {
-                if (err) {
-                  serverLogger.error("Failed to open SQLite database:", err);
-                  reject(err);
-                  return;
-                }
-
-                this.createTables()
-                  .then(() => {
-                    this.initialized = true;
-                    resolve();
-                  })
-                  .catch(reject);
+            this.db = new Database(this.options.filename as string, (err: any) => {
+              if (err) {
+                serverLogger.error("Failed to open SQLite database:", err);
+                reject(err);
+                return;
               }
-            );
+
+              this.createTables()
+                .then(() => {
+                  this.initialized = true;
+                  resolve();
+                })
+                .catch(reject);
+            });
           })
           .catch((err) => {
-            serverLogger.error(
-              "Failed to import sqlite3. Make sure it's installed: npm install sqlite3",
-              err
-            );
-            reject(
-              new Error(
-                "Failed to import sqlite3. Make sure it's installed: npm install sqlite3"
-              )
-            );
+            serverLogger.error("Failed to import sqlite3. Make sure it's installed: npm install sqlite3", err);
+            reject(new Error("Failed to import sqlite3. Make sure it's installed: npm install sqlite3"));
           });
       } catch (err) {
         reject(err);
@@ -81,18 +67,15 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
             return;
           }
 
-          this.db!.run(
-            "CREATE INDEX IF NOT EXISTS idx_channel_timestamp ON channel_messages (channel, timestamp)",
-            (err: Error | null) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-
-              resolve();
+          this.db!.run("CREATE INDEX IF NOT EXISTS idx_channel_timestamp ON channel_messages (channel, timestamp)", (err: Error | null) => {
+            if (err) {
+              reject(err);
+              return;
             }
-          );
-        }
+
+            resolve();
+          });
+        },
       );
     });
   }
@@ -110,20 +93,13 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
         const stmt = db.prepare(
           `INSERT INTO channel_messages
            (id, channel, message, instance_id, timestamp, metadata)
-           VALUES (?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?)`,
         );
 
         try {
           for (const msg of messages) {
             const metadata = msg.metadata ? JSON.stringify(msg.metadata) : null;
-            stmt.run(
-              msg.id,
-              msg.channel,
-              msg.message,
-              msg.instanceId,
-              msg.timestamp,
-              metadata
-            );
+            stmt.run(msg.id, msg.channel, msg.message, msg.instanceId, msg.timestamp, metadata);
           }
 
           stmt.finalize();
@@ -143,11 +119,7 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
     });
   }
 
-  async getMessages(
-    channel: string,
-    since?: string | number,
-    limit: number = 50
-  ): Promise<PersistedMessage[]> {
+  async getMessages(channel: string, since?: string | number, limit: number = 50): Promise<PersistedMessage[]> {
     if (!this.db) throw new Error("Database not initialized");
 
     let query = "SELECT * FROM channel_messages WHERE channel = ?";
@@ -162,17 +134,13 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
       } else {
         // get the timestamp of the message with the given ID
         const timestampQuery = await new Promise<number>((resolve, reject) => {
-          this.db!.get(
-            "SELECT timestamp FROM channel_messages WHERE id = ?",
-            [since],
-            (err: Error | null, row: any) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-              resolve(row ? row.timestamp : 0);
+          this.db!.get("SELECT timestamp FROM channel_messages WHERE id = ?", [since], (err: Error | null, row: any) => {
+            if (err) {
+              reject(err);
+              return;
             }
-          );
+            resolve(row ? row.timestamp : 0);
+          });
         });
 
         query += " AND timestamp > ?";

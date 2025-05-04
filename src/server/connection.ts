@@ -1,11 +1,7 @@
 import { EventEmitter } from "node:events";
 import { IncomingMessage } from "node:http";
 import { WebSocket } from "ws";
-import {
-  type Command,
-  parseCommand,
-  stringifyCommand,
-} from "../common/message";
+import { type Command, parseCommand, stringifyCommand } from "../common/message";
 import { Status } from "../common/status";
 import { Latency } from "./latency";
 import { Ping } from "./ping";
@@ -27,12 +23,7 @@ export class Connection extends EventEmitter {
   status: Status = Status.ONLINE;
   server: MeshServer;
 
-  constructor(
-    socket: WebSocket,
-    req: IncomingMessage,
-    options: MeshServerOptions,
-    server: MeshServer
-  ) {
+  constructor(socket: WebSocket, req: IncomingMessage, options: MeshServerOptions, server: MeshServer) {
     super();
     this.socket = socket;
     this.id = getId();
@@ -70,9 +61,7 @@ export class Connection extends EventEmitter {
         this.missedPongs++;
         const maxMissedPongs = this.connectionOptions.maxMissedPongs ?? 1;
         if (this.missedPongs > maxMissedPongs) {
-          serverLogger.info(
-            `Closing connection (${this.id}) due to missed pongs`
-          );
+          serverLogger.info(`Closing connection (${this.id}) due to missed pongs`);
           this.close();
           this.server.cleanupConnection(this);
           return;

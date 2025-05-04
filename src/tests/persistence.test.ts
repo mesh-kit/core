@@ -11,9 +11,7 @@ import Redis from "ioredis";
 import "./websocket-polyfill";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const testDir = path.join(__dirname, "../../test-temp");
 if (!fs.existsSync(testDir)) {
@@ -61,7 +59,7 @@ describe("Persistence System", () => {
           message: testMessage,
           instanceId: testInstanceId,
           timestamp: expect.any(Number),
-        })
+        }),
       );
 
       const callArg = mockCallback.mock.calls[0]?.[0];
@@ -121,11 +119,7 @@ describe("Persistence System", () => {
         configurable: true,
       });
 
-      persistenceManager.handleChannelMessage(
-        "chat:general",
-        JSON.stringify({ text: "Test message" }),
-        "test-instance"
-      );
+      persistenceManager.handleChannelMessage("chat:general", JSON.stringify({ text: "Test message" }), "test-instance");
 
       if (!mockBuffer.has("chat:general")) {
         mockBuffer.set("chat:general", []);
@@ -266,15 +260,10 @@ describe("Persistence System", () => {
 
       await adapter.storeMessages(testMessages);
 
-      const retrievedMessages = await adapter.getMessages(
-        "chat:general",
-        now - 2500
-      );
+      const retrievedMessages = await adapter.getMessages("chat:general", now - 2500);
 
       expect(retrievedMessages.length).toBe(1);
-      expect(JSON.parse(retrievedMessages[0]?.message || "{}").text).toBe(
-        "New message"
-      );
+      expect(JSON.parse(retrievedMessages[0]?.message || "{}").text).toBe("New message");
     });
   });
 
@@ -357,20 +346,12 @@ describe("Persistence System", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
-      const storedHistory = await redis.lrange(
-        "mesh:history:chat:history",
-        0,
-        -1
-      );
+      const storedHistory = await redis.lrange("mesh:history:chat:history", 0, -1);
       await redis.quit();
 
       expect(storedHistory.length).toBe(3);
 
-      const { success, history } = await client.subscribeChannel(
-        "chat:history",
-        () => {},
-        { historyLimit }
-      );
+      const { success, history } = await client.subscribeChannel("chat:history", () => {}, { historyLimit });
 
       expect(success).toBe(true);
       expect(history.length).toBe(3);

@@ -17,22 +17,13 @@ export class PresenceManager {
   }
 
   private readonly PRESENCE_KEY_PATTERN = /^mesh:presence:room:(.+):conn:(.+)$/;
-  private readonly PRESENCE_STATE_KEY_PATTERN =
-    /^mesh:presence:state:(.+):conn:(.+)$/;
+  private readonly PRESENCE_STATE_KEY_PATTERN = /^mesh:presence:state:(.+):conn:(.+)$/;
   private trackedRooms: ChannelPattern[] = [];
-  private roomGuards: Map<
-    ChannelPattern,
-    (connection: Connection, roomName: string) => Promise<boolean> | boolean
-  > = new Map();
+  private roomGuards: Map<ChannelPattern, (connection: Connection, roomName: string) => Promise<boolean> | boolean> = new Map();
   private roomTTLs: Map<ChannelPattern, number> = new Map();
   private defaultTTL = 0; // no expiration
 
-  constructor(
-    redis: Redis,
-    roomManager: RoomManager,
-    redisManager: RedisManager,
-    enableExpirationEvents: boolean = true
-  ) {
+  constructor(redis: Redis, roomManager: RoomManager, redisManager: RedisManager, enableExpirationEvents: boolean = true) {
     this.redis = redis;
     this.roomManager = roomManager;
     this.redisManager = redisManager;
@@ -52,10 +43,7 @@ export class PresenceManager {
     subClient.psubscribe(pattern);
 
     subClient.on("pmessage", (pattern, channel, key) => {
-      if (
-        this.PRESENCE_KEY_PATTERN.test(key) ||
-        this.PRESENCE_STATE_KEY_PATTERN.test(key)
-      ) {
+      if (this.PRESENCE_KEY_PATTERN.test(key) || this.PRESENCE_STATE_KEY_PATTERN.test(key)) {
         this.handleExpiredKey(key);
       }
     });
@@ -90,17 +78,11 @@ export class PresenceManager {
   trackRoom(
     roomPattern: ChannelPattern,
     guardOrOptions?:
-      | ((
-          connection: Connection,
-          roomName: string
-        ) => Promise<boolean> | boolean)
+      | ((connection: Connection, roomName: string) => Promise<boolean> | boolean)
       | {
           ttl?: number;
-          guard?: (
-            connection: Connection,
-            roomName: string
-          ) => Promise<boolean> | boolean;
-        }
+          guard?: (connection: Connection, roomName: string) => Promise<boolean> | boolean;
+        },
   ): void {
     this.trackedRooms.push(roomPattern);
 
@@ -117,15 +99,8 @@ export class PresenceManager {
     }
   }
 
-  async isRoomTracked(
-    roomName: string,
-    connection?: Connection
-  ): Promise<boolean> {
-    const matchedPattern = this.trackedRooms.find((pattern) =>
-      typeof pattern === "string"
-        ? pattern === roomName
-        : pattern.test(roomName)
-    );
+  async isRoomTracked(roomName: string, connection?: Connection): Promise<boolean> {
+    const matchedPattern = this.trackedRooms.find((pattern) => (typeof pattern === "string" ? pattern === roomName : pattern.test(roomName)));
 
     if (!matchedPattern) {
       return false;
@@ -146,11 +121,7 @@ export class PresenceManager {
   }
 
   getRoomTTL(roomName: string): number {
-    const matchedPattern = this.trackedRooms.find((pattern) =>
-      typeof pattern === "string"
-        ? pattern === roomName
-        : pattern.test(roomName)
-    );
+    const matchedPattern = this.trackedRooms.find((pattern) => (typeof pattern === "string" ? pattern === roomName : pattern.test(roomName)));
 
     if (matchedPattern) {
       const ttl = this.roomTTLs.get(matchedPattern);
@@ -166,10 +137,7 @@ export class PresenceManager {
     return `mesh:presence:room:${roomName}`;
   }
 
-  private presenceConnectionKey(
-    roomName: string,
-    connectionId: string
-  ): string {
+  private presenceConnectionKey(roomName: string, connectionId: string): string {
     return `mesh:presence:room:${roomName}:conn:${connectionId}`;
   }
 
@@ -184,7 +152,7 @@ export class PresenceManager {
 
     const pipeline = this.redis.pipeline();
     pipeline.sadd(roomKey, connectionId);
-    
+
     // only set expiration if TTL > 0
     if (ttl > 0) {
       const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
@@ -192,7 +160,7 @@ export class PresenceManager {
     } else {
       pipeline.set(connKey, "");
     }
-    
+
     await pipeline.exec();
 
     await this.publishPresenceUpdate(roomName, connectionId, "join");
@@ -215,7 +183,7 @@ export class PresenceManager {
   async refreshPresence(connectionId: string, roomName: string): Promise<void> {
     const connKey = this.presenceConnectionKey(roomName, connectionId);
     const ttl = this.getRoomTTL(roomName);
-    
+
     // only set expiration if TTL > 0
     if (ttl > 0) {
       const ttlSeconds = Math.max(1, Math.floor(ttl / 1000));
@@ -229,11 +197,7 @@ export class PresenceManager {
     return this.redis.smembers(this.presenceRoomKey(roomName));
   }
 
-  private async publishPresenceUpdate(
-    roomName: string,
-    connectionId: string,
-    type: "join" | "leave"
-  ): Promise<void> {
+  private async publishPresenceUpdate(roomName: string, connectionId: string, type: "join" | "leave"): Promise<void> {
     const channel = `mesh:presence:updates:${roomName}`;
     const message = JSON.stringify({
       type,
@@ -253,13 +217,7 @@ export class PresenceManager {
    * @param state The state object to publish
    * @param expireAfter Optional TTL in milliseconds
    */
-  async publishPresenceState(
-    connectionId: string,
-    roomName: string,
-    state: Record<string, any>,
-    expireAfter?: number,
-    silent?: boolean
-  ): Promise<void> {
+  async publishPresenceState(connectionId: string, roomName: string, state: Record<string, any>, expireAfter?: number, silent?: boolean): Promise<void> {
     const key = this.presenceStateKey(roomName, connectionId);
     const value = JSON.stringify(state);
 
@@ -284,10 +242,7 @@ export class PresenceManager {
    * @param connectionId The ID of the connection
    * @param roomName The name of the room
    */
-  async clearPresenceState(
-    connectionId: string,
-    roomName: string
-  ): Promise<void> {
+  async clearPresenceState(connectionId: string, roomName: string): Promise<void> {
     const key = this.presenceStateKey(roomName, connectionId);
     await this.redis.del(key);
     await this.publishPresenceStateUpdate(roomName, connectionId, null);
@@ -300,10 +255,7 @@ export class PresenceManager {
    * @param roomName The name of the room
    * @returns The presence state or null if not found
    */
-  async getPresenceState(
-    connectionId: string,
-    roomName: string
-  ): Promise<Record<string, any> | null> {
+  async getPresenceState(connectionId: string, roomName: string): Promise<Record<string, any> | null> {
     const key = this.presenceStateKey(roomName, connectionId);
     const value = await this.redis.get(key);
 
@@ -325,9 +277,7 @@ export class PresenceManager {
    * @param roomName The name of the room
    * @returns A map of connection IDs to their presence states
    */
-  async getAllPresenceStates(
-    roomName: string
-  ): Promise<Map<string, Record<string, any>>> {
+  async getAllPresenceStates(roomName: string): Promise<Map<string, Record<string, any>>> {
     const result = new Map<string, Record<string, any>>();
     const connections = await this.getPresentConnections(roomName);
 
@@ -375,11 +325,7 @@ export class PresenceManager {
    * @param connectionId The ID of the connection
    * @param state The state object or null
    */
-  private async publishPresenceStateUpdate(
-    roomName: string,
-    connectionId: string,
-    state: Record<string, any> | null
-  ): Promise<void> {
+  private async publishPresenceStateUpdate(roomName: string, connectionId: string, state: Record<string, any> | null): Promise<void> {
     const channel = `mesh:presence:updates:${roomName}`;
     const message = JSON.stringify({
       type: "state",

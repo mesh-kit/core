@@ -1,10 +1,6 @@
 import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
-import type {
-  PersistenceAdapter,
-  PersistedMessage,
-  PersistenceOptions,
-} from "../persistence/types";
+import type { PersistenceAdapter, PersistedMessage, PersistenceOptions } from "../persistence/types";
 import { SQLitePersistenceAdapter } from "../persistence/sqlite-adapter";
 import { serverLogger } from "../../common/logger";
 import { MessageStream } from "../persistence/message-stream";
@@ -36,9 +32,7 @@ export class PersistenceManager extends EventEmitter {
     try {
       await this.defaultAdapter.initialize();
 
-      this.messageStream.subscribeToMessages(
-        this.handleStreamMessage.bind(this)
-      );
+      this.messageStream.subscribeToMessages(this.handleStreamMessage.bind(this));
 
       this.initialized = true;
     } catch (err) {
@@ -50,12 +44,7 @@ export class PersistenceManager extends EventEmitter {
   /**
    * Handle a message received from the internal message stream.
    */
-  private handleStreamMessage(message: {
-    channel: string;
-    message: string;
-    instanceId: string;
-    timestamp: number;
-  }): void {
+  private handleStreamMessage(message: { channel: string; message: string; instanceId: string; timestamp: number }): void {
     // pass along to main handler which performs necessary checks
     const { channel, message: messageContent, instanceId, timestamp } = message;
     this.handleChannelMessage(channel, messageContent, instanceId, timestamp);
@@ -66,10 +55,7 @@ export class PersistenceManager extends EventEmitter {
    * @param pattern string or regexp pattern to match channel names
    * @param options persistence options
    */
-  enablePersistenceForChannels(
-    pattern: string | RegExp,
-    options: PersistenceOptions = {}
-  ): void {
+  enablePersistenceForChannels(pattern: string | RegExp, options: PersistenceOptions = {}): void {
     const fullOptions: Required<PersistenceOptions> = {
       historyLimit: options.historyLimit ?? 50,
       maxMessageSize: options.maxMessageSize ?? 10240,
@@ -82,10 +68,7 @@ export class PersistenceManager extends EventEmitter {
     // initialize custom adapter if provided and not shutting down
     if (fullOptions.adapter !== this.defaultAdapter && !this.isShuttingDown) {
       fullOptions.adapter.initialize().catch((err) => {
-        serverLogger.error(
-          `Failed to initialize adapter for pattern ${pattern}:`,
-          err
-        );
+        serverLogger.error(`Failed to initialize adapter for pattern ${pattern}:`, err);
       });
     }
 
@@ -100,14 +83,9 @@ export class PersistenceManager extends EventEmitter {
    * @param channel channel name to check
    * @returns the persistence options if enabled, undefined otherwise
    */
-  getChannelPersistenceOptions(
-    channel: string
-  ): Required<PersistenceOptions> | undefined {
+  getChannelPersistenceOptions(channel: string): Required<PersistenceOptions> | undefined {
     for (const { pattern, options } of this.patterns) {
-      if (
-        (typeof pattern === "string" && pattern === channel) ||
-        (pattern instanceof RegExp && pattern.test(channel))
-      ) {
+      if ((typeof pattern === "string" && pattern === channel) || (pattern instanceof RegExp && pattern.test(channel))) {
         return options;
       }
     }
@@ -120,12 +98,7 @@ export class PersistenceManager extends EventEmitter {
    * @param message the message content
    * @param instanceId id of the server instance
    */
-  handleChannelMessage(
-    channel: string,
-    message: string,
-    instanceId: string,
-    timestamp?: number
-  ): void {
+  handleChannelMessage(channel: string, message: string, instanceId: string, timestamp?: number): void {
     if (!this.initialized || this.isShuttingDown) return;
 
     const options = this.getChannelPersistenceOptions(channel);
@@ -134,9 +107,7 @@ export class PersistenceManager extends EventEmitter {
     if (!options.filter(message, channel)) return; // message filtered out
 
     if (message.length > options.maxMessageSize) {
-      serverLogger.warn(
-        `Message for channel ${channel} exceeds max size (${message.length} > ${options.maxMessageSize}), truncating for persistence`
-      );
+      serverLogger.warn(`Message for channel ${channel} exceeds max size (${message.length} > ${options.maxMessageSize}), truncating for persistence`);
       message = message.substring(0, options.maxMessageSize); // truncate
     }
 
@@ -200,14 +171,9 @@ export class PersistenceManager extends EventEmitter {
 
       this.emit("flushed", { channel, count: messages.length });
 
-      serverLogger.debug(
-        `Flushed ${messages.length} messages for channel ${channel}`
-      );
+      serverLogger.debug(`Flushed ${messages.length} messages for channel ${channel}`);
     } catch (err) {
-      serverLogger.error(
-        `Failed to flush messages for channel ${channel}:`,
-        err
-      );
+      serverLogger.error(`Failed to flush messages for channel ${channel}:`, err);
 
       // on failure, put messages back in buffer for retry (if not shutting down)
       if (!this.isShuttingDown) {
@@ -247,11 +213,7 @@ export class PersistenceManager extends EventEmitter {
    * @param since optional cursor (timestamp or message id) to retrieve messages after
    * @param limit maximum number of messages to retrieve
    */
-  async getMessages(
-    channel: string,
-    since?: string | number,
-    limit?: number
-  ): Promise<PersistedMessage[]> {
+  async getMessages(channel: string, since?: string | number, limit?: number): Promise<PersistedMessage[]> {
     if (!this.initialized) {
       throw new Error("Persistence manager not initialized");
     }
@@ -264,11 +226,7 @@ export class PersistenceManager extends EventEmitter {
     // ensure pending messages are written before retrieving history
     await this.flushChannel(channel);
 
-    return options.adapter.getMessages(
-      channel,
-      since,
-      limit || options.historyLimit
-    );
+    return options.adapter.getMessages(channel, since, limit || options.historyLimit);
   }
 
   /**
@@ -279,9 +237,7 @@ export class PersistenceManager extends EventEmitter {
 
     this.isShuttingDown = true;
 
-    this.messageStream.unsubscribeFromMessages(
-      this.handleStreamMessage.bind(this)
-    );
+    this.messageStream.unsubscribeFromMessages(this.handleStreamMessage.bind(this));
 
     for (const timer of this.flushTimers.values()) {
       clearTimeout(timer);

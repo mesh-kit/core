@@ -2,7 +2,6 @@ import type { Redis } from "ioredis";
 import type { Connection } from "../connection";
 import type { ChannelPattern } from "../types";
 import type { RecordManager } from "./record";
-import type { Operation } from "fast-json-patch";
 import { RECORD_PUB_SUB_CHANNEL } from "../utils/constants";
 
 export class RecordSubscriptionManager {
@@ -10,25 +9,15 @@ export class RecordSubscriptionManager {
   private recordManager: RecordManager;
   private exposedRecords: ChannelPattern[] = [];
   private exposedWritableRecords: ChannelPattern[] = [];
-  private recordGuards: Map<
-    ChannelPattern,
-    (connection: Connection, recordId: string) => Promise<boolean> | boolean
-  > = new Map();
-  private writableRecordGuards: Map<
-    ChannelPattern,
-    (connection: Connection, recordId: string) => Promise<boolean> | boolean
-  > = new Map();
+  private recordGuards: Map<ChannelPattern, (connection: Connection, recordId: string) => Promise<boolean> | boolean> = new Map();
+  private writableRecordGuards: Map<ChannelPattern, (connection: Connection, recordId: string) => Promise<boolean> | boolean> = new Map();
   private recordSubscriptions: Map<
     string, // recordId
     Map<string, "patch" | "full"> // connectionId -> mode
   > = new Map();
   private emitError: (error: Error) => void;
 
-  constructor(
-    pubClient: Redis,
-    recordManager: RecordManager,
-    emitError: (error: Error) => void
-  ) {
+  constructor(pubClient: Redis, recordManager: RecordManager, emitError: (error: Error) => void) {
     this.pubClient = pubClient;
     this.recordManager = recordManager;
     this.emitError = emitError;
@@ -40,13 +29,7 @@ export class RecordSubscriptionManager {
    * @param {ChannelPattern} recordPattern - The record ID or pattern to expose.
    * @param {(connection: Connection, recordId: string) => Promise<boolean> | boolean} [guard] - Optional guard function.
    */
-  exposeRecord(
-    recordPattern: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      recordId: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeRecord(recordPattern: ChannelPattern, guard?: (connection: Connection, recordId: string) => Promise<boolean> | boolean): void {
     this.exposedRecords.push(recordPattern);
     if (guard) {
       this.recordGuards.set(recordPattern, guard);
@@ -59,13 +42,7 @@ export class RecordSubscriptionManager {
    * @param {ChannelPattern} recordPattern - The record ID or pattern to expose as writable.
    * @param {(connection: Connection, recordId: string) => Promise<boolean> | boolean} [guard] - Optional guard function.
    */
-  exposeWritableRecord(
-    recordPattern: ChannelPattern,
-    guard?: (
-      connection: Connection,
-      recordId: string
-    ) => Promise<boolean> | boolean
-  ): void {
+  exposeWritableRecord(recordPattern: ChannelPattern, guard?: (connection: Connection, recordId: string) => Promise<boolean> | boolean): void {
     this.exposedWritableRecords.push(recordPattern);
     if (guard) {
       this.writableRecordGuards.set(recordPattern, guard);
@@ -79,15 +56,8 @@ export class RecordSubscriptionManager {
    * @param connection - The connection requesting access
    * @returns A promise that resolves to true if the record is exposed and the connection has access
    */
-  async isRecordExposed(
-    recordId: string,
-    connection: Connection
-  ): Promise<boolean> {
-    const readPattern = this.exposedRecords.find((pattern) =>
-      typeof pattern === "string"
-        ? pattern === recordId
-        : pattern.test(recordId)
-    );
+  async isRecordExposed(recordId: string, connection: Connection): Promise<boolean> {
+    const readPattern = this.exposedRecords.find((pattern) => (typeof pattern === "string" ? pattern === recordId : pattern.test(recordId)));
 
     let canRead = false;
     if (readPattern) {
@@ -108,11 +78,7 @@ export class RecordSubscriptionManager {
     }
 
     // if exposed as writable, it is implicitly readable
-    const writePattern = this.exposedWritableRecords.find((pattern) =>
-      typeof pattern === "string"
-        ? pattern === recordId
-        : pattern.test(recordId)
-    );
+    const writePattern = this.exposedWritableRecords.find((pattern) => (typeof pattern === "string" ? pattern === recordId : pattern.test(recordId)));
 
     // If exposed as writable, it's readable. No need to check the *write* guard here.
     if (writePattern) {
@@ -129,15 +95,8 @@ export class RecordSubscriptionManager {
    * @param connection - The connection requesting access
    * @returns A promise that resolves to true if the record is writable and the connection has access
    */
-  async isRecordWritable(
-    recordId: string,
-    connection: Connection
-  ): Promise<boolean> {
-    const matchedPattern = this.exposedWritableRecords.find((pattern) =>
-      typeof pattern === "string"
-        ? pattern === recordId
-        : pattern.test(recordId)
-    );
+  async isRecordWritable(recordId: string, connection: Connection): Promise<boolean> {
+    const matchedPattern = this.exposedWritableRecords.find((pattern) => (typeof pattern === "string" ? pattern === recordId : pattern.test(recordId)));
 
     if (!matchedPattern) {
       return false;
@@ -162,11 +121,7 @@ export class RecordSubscriptionManager {
    * @param connectionId - The connection ID to subscribe
    * @param mode - The subscription mode (patch or full)
    */
-  addSubscription(
-    recordId: string,
-    connectionId: string,
-    mode: "patch" | "full"
-  ): void {
+  addSubscription(recordId: string, connectionId: string, mode: "patch" | "full"): void {
     if (!this.recordSubscriptions.has(recordId)) {
       this.recordSubscriptions.set(recordId, new Map());
     }
@@ -212,10 +167,7 @@ export class RecordSubscriptionManager {
    * @throws {Error} If the update fails.
    */
   async publishRecordUpdate(recordId: string, newValue: any): Promise<void> {
-    const updateResult = await this.recordManager.publishUpdate(
-      recordId,
-      newValue
-    );
+    const updateResult = await this.recordManager.publishUpdate(recordId, newValue);
 
     if (!updateResult) {
       return;
@@ -231,14 +183,9 @@ export class RecordSubscriptionManager {
     };
 
     try {
-      await this.pubClient.publish(
-        RECORD_PUB_SUB_CHANNEL,
-        JSON.stringify(messagePayload)
-      );
+      await this.pubClient.publish(RECORD_PUB_SUB_CHANNEL, JSON.stringify(messagePayload));
     } catch (err) {
-      this.emitError(
-        new Error(`Failed to publish record update for "${recordId}": ${err}`)
-      );
+      this.emitError(new Error(`Failed to publish record update for "${recordId}": ${err}`));
     }
   }
 

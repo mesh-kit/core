@@ -45,14 +45,7 @@ export class MessageStream extends EventEmitter {
    * Subscribe to all messages in the stream
    * @param callback Function to call for each message
    */
-  subscribeToMessages(
-    callback: (message: {
-      channel: string;
-      message: string;
-      instanceId: string;
-      timestamp: number;
-    }) => void
-  ): void {
+  subscribeToMessages(callback: (message: { channel: string; message: string; instanceId: string; timestamp: number }) => void): void {
     this.on("message", callback);
   }
 
@@ -60,14 +53,7 @@ export class MessageStream extends EventEmitter {
    * Unsubscribe from messages
    * @param callback The callback function to remove
    */
-  unsubscribeFromMessages(
-    callback: (message: {
-      channel: string;
-      message: string;
-      instanceId: string;
-      timestamp: number;
-    }) => void
-  ): void {
+  unsubscribeFromMessages(callback: (message: { channel: string; message: string; instanceId: string; timestamp: number }) => void): void {
     this.off("message", callback);
   }
 }

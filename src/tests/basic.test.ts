@@ -5,9 +5,7 @@ import { MeshServer } from "../server";
 import { MeshClient, Status } from "../client";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
-const REDIS_PORT = process.env.REDIS_PORT
-  ? parseInt(process.env.REDIS_PORT, 10)
-  : 6379;
+const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
 
 const createTestServer = (port: number) =>
   new MeshServer({
@@ -83,25 +81,15 @@ describe("MeshServer", () => {
       const connectionB = server.connectionManager.getLocalConnections()[1]!;
       await server.connectionManager.setMetadata(connectionA, metadataA);
       await server.connectionManager.setMetadata(connectionB, metadataB);
-      const storedMetadataA = await server.connectionManager.getMetadata(
-        connectionA
-      );
-      const storedMetadataB = await server.connectionManager.getMetadata(
-        connectionB
-      );
+      const storedMetadataA = await server.connectionManager.getMetadata(connectionA);
+      const storedMetadataB = await server.connectionManager.getMetadata(connectionB);
       expect(storedMetadataA).toEqual(metadataA);
       expect(storedMetadataB).toEqual(metadataB);
 
       const allMetadata = await server.connectionManager.getAllMetadata();
-      expect(allMetadata).toEqual([
-        { [connectionA.id]: metadataA },
-        { [connectionB.id]: metadataB },
-      ]);
+      expect(allMetadata).toEqual([{ [connectionA.id]: metadataA }, { [connectionB.id]: metadataB }]);
 
-      const allMetadataFromNonExistentRoom =
-        await server.connectionManager.getAllMetadataForRoom(
-          "non-existent-room"
-        );
+      const allMetadataFromNonExistentRoom = await server.connectionManager.getAllMetadataForRoom("non-existent-room");
       expect(allMetadataFromNonExistentRoom).toEqual([]);
     });
 
@@ -117,12 +105,10 @@ describe("MeshServer", () => {
       await server.addToRoom("room-a", connectionA);
       await server.addToRoom("room-b", connectionB);
 
-      const roomAMetadata =
-        await server.connectionManager.getAllMetadataForRoom("room-a");
+      const roomAMetadata = await server.connectionManager.getAllMetadataForRoom("room-a");
       expect(roomAMetadata).toEqual([{ [connectionA.id]: metadataA }]);
 
-      const roomBMetadata =
-        await server.connectionManager.getAllMetadataForRoom("room-b");
+      const roomBMetadata = await server.connectionManager.getAllMetadataForRoom("room-b");
       expect(roomBMetadata).toEqual([{ [connectionB.id]: metadataB }]);
     });
 

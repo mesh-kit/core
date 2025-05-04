@@ -30,10 +30,7 @@ export class ConnectionManager {
 
     const pipeline = this.redis.pipeline();
     pipeline.hset(CONNECTIONS_HASH_KEY, connection.id, this.instanceId);
-    pipeline.sadd(
-      this.getInstanceConnectionsKey(this.instanceId),
-      connection.id
-    );
+    pipeline.sadd(this.getInstanceConnectionsKey(this.instanceId), connection.id);
     await pipeline.exec();
   }
 
@@ -53,23 +50,16 @@ export class ConnectionManager {
     await pipeline.exec();
   }
 
-  private async getInstanceIdForConnection(
-    connection: Connection
-  ): Promise<string | null> {
+  private async getInstanceIdForConnection(connection: Connection): Promise<string | null> {
     return this.redis.hget(CONNECTIONS_HASH_KEY, connection.id);
   }
 
-  async getInstanceIdsForConnections(
-    connectionIds: string[]
-  ): Promise<{ [connectionId: string]: string | null }> {
+  async getInstanceIdsForConnections(connectionIds: string[]): Promise<{ [connectionId: string]: string | null }> {
     if (connectionIds.length === 0) {
       return {};
     }
 
-    const instanceIds = await this.redis.hmget(
-      CONNECTIONS_HASH_KEY,
-      ...connectionIds
-    );
+    const instanceIds = await this.redis.hmget(CONNECTIONS_HASH_KEY, ...connectionIds);
     const result: { [connectionId: string]: string | null } = {};
 
     connectionIds.forEach((id, index) => {
@@ -98,11 +88,7 @@ export class ConnectionManager {
    */
   async setMetadata(connection: Connection, metadata: any) {
     const pipeline = this.redis.pipeline();
-    pipeline.hset(
-      CONNECTIONS_HASH_KEY,
-      connection.id,
-      JSON.stringify(metadata)
-    );
+    pipeline.hset(CONNECTIONS_HASH_KEY, connection.id, JSON.stringify(metadata));
     await pipeline.exec();
   }
 
@@ -145,9 +131,7 @@ export class ConnectionManager {
    * each containing a connection ID as the key and its metadata as the value (or null if not available).
    * @throws {Error} If there is an error retrieving connection IDs or metadata, the promise will be rejected with the error.
    */
-  async getAllMetadataForRoom(
-    roomName: string
-  ): Promise<Array<{ [connectionId: string]: any }>> {
+  async getAllMetadataForRoom(roomName: string): Promise<Array<{ [connectionId: string]: any }>> {
     const connectionIds = await this.roomManager.getRoomConnectionIds(roomName);
     const metadata = await this.getInstanceIdsForConnections(connectionIds);
     return connectionIds.map((id) => ({
