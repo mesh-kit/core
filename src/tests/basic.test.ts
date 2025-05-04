@@ -93,6 +93,29 @@ describe("MeshServer", () => {
       expect(allMetadataFromNonExistentRoom).toEqual([]);
     });
 
+    test("server can filter metadata using a filter function", async () => {
+      await clientA.connect();
+      await clientB.connect();
+      const metadataA = { name: "Client A", id: 1, role: "user" };
+      const metadataB = { name: "Client B", id: 2, role: "admin" };
+      const connectionA = server.connectionManager.getLocalConnections()[0]!;
+      const connectionB = server.connectionManager.getLocalConnections()[1]!;
+      await server.connectionManager.setMetadata(connectionA, metadataA);
+      await server.connectionManager.setMetadata(connectionB, metadataB);
+
+      // filter by id
+      const filteredById = await server.connectionManager.getAllMetadata((connectionId, metadata) => metadata.id > 1);
+      expect(filteredById.length).toBe(1);
+      const filteredByIdObj = filteredById[0]!;
+      expect(filteredByIdObj[connectionB.id]).toEqual(metadataB);
+
+      // filter by role
+      const filteredByRole = await server.connectionManager.getAllMetadata((connectionId, metadata) => metadata.role === "user");
+      expect(filteredByRole.length).toBe(1);
+      const filteredByRoleObj = filteredByRole[0]!;
+      expect(filteredByRoleObj[connectionA.id]).toEqual(metadataA);
+    });
+
     test("server can retrieve metadata for a room of connections", async () => {
       await clientA.connect();
       await clientB.connect();

@@ -60,7 +60,7 @@ export class MeshServer extends WebSocketServer {
       pingInterval: opts.pingInterval ?? 30_000,
       latencyInterval: opts.latencyInterval ?? 5_000,
       maxMissedPongs: opts.maxMissedPongs ?? 1,
-      logLevel: opts.logLevel ?? LogLevel.ERROR, // Default to minimal logging
+      logLevel: opts.logLevel ?? LogLevel.ERROR,
     };
 
     serverLogger.configure({

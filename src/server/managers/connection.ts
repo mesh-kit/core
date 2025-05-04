@@ -108,17 +108,40 @@ export class ConnectionManager {
   /**
    * Retrieves metadata for all available connections by fetching all connection IDs,
    * obtaining their associated metadata, and parsing the metadata as JSON.
+   * Optionally filters the results based on the provided filter function.
    *
+   * @param {Function} filterFn - Optional filter function that takes a connection ID and metadata,
+   *                             and returns a boolean indicating whether to include the connection.
    * @returns {Promise<Array<{ [connectionId: string]: any }>>}
    *   A promise that resolves to an array of objects, each mapping a connection ID to its parsed metadata object, or `null` if no metadata is available.
    * @throws {Error} If an error occurs while fetching connection IDs, retrieving metadata, or parsing JSON.
    */
-  async getAllMetadata(): Promise<Array<{ [connectionId: string]: any }>> {
+  async getAllMetadata(filterFn?: (connectionId: string, metadata: any) => boolean): Promise<Array<{ [connectionId: string]: any }>> {
     const connectionIds = await this.getAllConnectionIds();
     const metadata = await this.getInstanceIdsForConnections(connectionIds);
-    return connectionIds.map((id) => ({
-      [id]: metadata[id] ? JSON.parse(metadata[id]) : null,
-    }));
+
+    return connectionIds
+      .map((id) => {
+        try {
+          const parsedMetadata = metadata[id] ? JSON.parse(metadata[id]) : null;
+          return { [id]: parsedMetadata };
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is { [connectionId: string]: any } => {
+        if (item === null) return false;
+
+        if (filterFn) {
+          const id = Object.keys(item)[0];
+          if (id === undefined) return false;
+
+          const metadata = item[id];
+          return metadata !== null && filterFn(id, metadata);
+        }
+
+        return true;
+      });
   }
 
   /**
