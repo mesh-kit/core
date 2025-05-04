@@ -634,14 +634,16 @@ export class MeshClient extends EventEmitter {
    *
    * @param {string} channel - The name of the channel to subscribe to.
    * @param {(message: string) => void | Promise<void>} callback - The function to be called for each message received on the channel.
-   * @param {{ historyLimit?: number }} [options] - Optional subscription options, such as the maximum number of historical messages to retrieve.
+   * @param {{ historyLimit?: number; since?: string | number }} [options] - Optional subscription options:
+   *   - historyLimit: The maximum number of historical messages to retrieve.
+   *   - since: Retrieve messages after this timestamp or message ID (requires persistence to be enabled for the channel).
    * @returns {Promise<{ success: boolean; history: string[] }>} A promise that resolves with the subscription result,
    *          including a success flag and an array of historical messages.
    */
   subscribeChannel(
     channel: string,
     callback: (message: string) => void | Promise<void>,
-    options?: { historyLimit?: number }
+    options?: { historyLimit?: number; since?: string | number }
   ): Promise<{ success: boolean; history: string[] }> {
     this.channelSubscriptions.set(channel, {
       callback,
@@ -649,10 +651,12 @@ export class MeshClient extends EventEmitter {
     });
 
     const historyLimit = options?.historyLimit;
+    const since = options?.since;
 
     return this.command("mesh/subscribe-channel", {
       channel,
       historyLimit,
+      since,
     }).then((result) => {
       if (result.success && result.history && result.history.length > 0) {
         result.history.forEach((message: string) => {
@@ -676,6 +680,41 @@ export class MeshClient extends EventEmitter {
   unsubscribeChannel(channel: string): Promise<boolean> {
     this.channelSubscriptions.delete(channel);
     return this.command("mesh/unsubscribe-channel", { channel });
+  }
+
+  /**
+   * Retrieves historical messages from a channel without subscribing to it.
+   * This method requires persistence to be enabled for the channel on the server.
+   *
+   * @param {string} channel - The name of the channel to retrieve history from.
+   * @param {{ limit?: number; since?: string | number }} [options] - Optional retrieval options:
+   *   - limit: The maximum number of messages to retrieve (defaults to server's historyLimit).
+   *   - since: Retrieve messages after this timestamp or message ID.
+   * @returns {Promise<{ success: boolean; history: string[] }>} A promise that resolves with the retrieval result,
+   *          including a success flag and an array of historical messages.
+   */
+  async getChannelHistory(
+    channel: string,
+    options?: { limit?: number; since?: string | number }
+  ): Promise<{ success: boolean; history: string[] }> {
+    try {
+      const result = await this.command("mesh/get-channel-history", {
+        channel,
+        limit: options?.limit,
+        since: options?.since,
+      });
+
+      return {
+        success: result.success,
+        history: result.history || [],
+      };
+    } catch (error) {
+      clientLogger.error(
+        `Failed to get history for channel ${channel}:`,
+        error
+      );
+      return { success: false, history: [] };
+    }
   }
 
   /**

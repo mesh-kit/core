@@ -107,7 +107,9 @@ export class MeshServer extends WebSocketServer {
     }
     this.commandManager = new CommandManager((err) => this.emit("error", err));
 
-    this.persistenceManager = new PersistenceManager(this.serverOptions.persistenceOptions);
+    this.persistenceManager = new PersistenceManager(
+      this.serverOptions.persistenceOptions
+    );
     this.persistenceManager.initialize().catch((err) => {
       this.emit(
         "error",
@@ -344,8 +346,6 @@ export class MeshServer extends WebSocketServer {
     );
   }
 
-  // #endregion
-
   /**
    * Enables persistence for channels matching the specified pattern.
    *
@@ -569,13 +569,14 @@ export class MeshServer extends WebSocketServer {
   // #region Command Registration
 
   private registerBuiltinCommands() {
-    // Register a no-op command for connection testing
+    // this no-op command is just for allowing clients to test their connection
+    // after a period of inactivity
     this.exposeCommand("mesh/noop", async () => true);
     this.exposeCommand<
-      { channel: string; historyLimit?: number },
+      { channel: string; historyLimit?: number; since?: string | number },
       { success: boolean; history?: string[] }
     >("mesh/subscribe-channel", async (ctx) => {
-      const { channel, historyLimit } = ctx.payload;
+      const { channel, historyLimit, since } = ctx.payload;
 
       if (
         !(await this.channelManager.isChannelExposed(channel, ctx.connection))
@@ -589,10 +590,15 @@ export class MeshServer extends WebSocketServer {
         }
         this.channelManager.addSubscription(channel, ctx.connection);
 
-        const history: string[] =
-          historyLimit && historyLimit > 0
-            ? await this.channelManager.getChannelHistory(channel, historyLimit)
-            : [];
+        let history: string[] = [];
+
+        if (historyLimit && historyLimit > 0) {
+          history = await this.channelManager.getChannelHistory(
+            channel,
+            historyLimit,
+            since
+          );
+        }
 
         return {
           success: true,
@@ -619,6 +625,52 @@ export class MeshServer extends WebSocketServer {
         return wasSubscribed;
       }
     );
+
+    this.exposeCommand<
+      { channel: string; limit?: number; since?: string | number },
+      { success: boolean; history: string[] }
+    >("mesh/get-channel-history", async (ctx) => {
+      const { channel, limit, since } = ctx.payload;
+
+      if (
+        !(await this.channelManager.isChannelExposed(channel, ctx.connection))
+      ) {
+        return { success: false, history: [] };
+      }
+
+      try {
+        if (
+          this.persistenceManager &&
+          this.persistenceManager.getChannelPersistenceOptions(channel)
+        ) {
+          const messages = await this.persistenceManager.getMessages(
+            channel,
+            since,
+            limit ||
+              this.persistenceManager.getChannelPersistenceOptions(channel)
+                ?.historyLimit
+          );
+
+          return {
+            success: true,
+            history: messages.map((msg) => msg.message),
+          };
+        } else {
+          const history = await this.channelManager.getChannelHistory(
+            channel,
+            limit || 50,
+            since
+          );
+
+          return {
+            success: true,
+            history,
+          };
+        }
+      } catch (e) {
+        return { success: false, history: [] };
+      }
+    });
 
     this.exposeCommand<
       { roomName: string },
