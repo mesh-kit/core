@@ -5,6 +5,7 @@ import type { Connection } from "./connection";
 import type { Command } from "../common/message";
 import type { MeshContext } from "./mesh-context";
 import { LogLevel } from "../common/logger";
+import type { PersistenceAdapterOptions } from "./persistence/types";
 
 export type SocketMiddleware = (
   context: MeshContext<any>
@@ -67,6 +68,20 @@ export type MeshServerOptions = ServerOptions & {
    * @default LogLevel.ERROR
    */
   logLevel?: LogLevel;
+
+  /**
+   * Options for the persistence layer.
+   * By default, persistence uses an in-memory SQLite database.
+   * To persist data across restarts, specify a file path.
+   *
+   * @example
+   * ```
+   * persistenceOptions: {
+   *   filename: "./data/channels.db"
+   * }
+   * ```
+   */
+  persistenceOptions?: PersistenceAdapterOptions;
 };
 
 export type ChannelPattern = string | RegExp;

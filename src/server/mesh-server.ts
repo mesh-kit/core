@@ -22,6 +22,8 @@ import type {
   MeshServerOptions,
   SocketMiddleware,
 } from "./types";
+import { PersistenceManager } from "./managers/persistence";
+import type { PersistenceOptions } from "./persistence/types";
 import { PUB_SUB_CHANNEL_PREFIX } from "./utils/constants";
 
 export class MeshServer extends WebSocketServer {
@@ -34,6 +36,7 @@ export class MeshServer extends WebSocketServer {
   private pubSubManager: PubSubManager;
   private recordSubscriptionManager: RecordSubscriptionManager;
   private broadcastManager: BroadcastManager;
+  private persistenceManager: PersistenceManager | null = null;
   roomManager: RoomManager;
   recordManager: RecordManager;
   connectionManager: ConnectionManager;
@@ -103,12 +106,23 @@ export class MeshServer extends WebSocketServer {
         );
     }
     this.commandManager = new CommandManager((err) => this.emit("error", err));
+
+    this.persistenceManager = new PersistenceManager(this.serverOptions.persistenceOptions);
+    this.persistenceManager.initialize().catch((err) => {
+      this.emit(
+        "error",
+        new Error(`Failed to initialize persistence manager: ${err}`)
+      );
+    });
+
     this.channelManager = new ChannelManager(
       this.redisManager.redis,
       this.redisManager.pubClient,
       this.redisManager.subClient,
       (err) => this.emit("error", err)
     );
+
+    this.channelManager.setPersistenceManager(this.persistenceManager);
     this.recordSubscriptionManager = new RecordSubscriptionManager(
       this.redisManager.pubClient,
       this.recordManager,
@@ -322,7 +336,34 @@ export class MeshServer extends WebSocketServer {
     message: any,
     history: number = 0
   ): Promise<void> {
-    return this.channelManager.publishToChannel(channel, message, history);
+    return this.channelManager.publishToChannel(
+      channel,
+      message,
+      history,
+      this.instanceId
+    );
+  }
+
+  // #endregion
+
+  /**
+   * Enables persistence for channels matching the specified pattern.
+   *
+   * @param {ChannelPattern} pattern - The channel pattern to enable persistence for.
+   * @param {PersistenceOptions} [options] - Options for persistence.
+   * @throws {Error} If persistence is not enabled for this server instance.
+   */
+  enablePersistenceForChannels(
+    pattern: ChannelPattern,
+    options: PersistenceOptions = {}
+  ): void {
+    if (!this.persistenceManager) {
+      throw new Error(
+        "Persistence not enabled. Initialize the persistence manager first."
+      );
+    }
+
+    this.persistenceManager.enablePersistenceForChannels(pattern, options);
   }
 
   // #endregion
@@ -953,6 +994,14 @@ export class MeshServer extends WebSocketServer {
         else resolve();
       });
     });
+
+    if (this.persistenceManager) {
+      try {
+        await this.persistenceManager.shutdown();
+      } catch (err) {
+        serverLogger.error("Error shutting down persistence manager:", err);
+      }
+    }
 
     this.redisManager.disconnect();
 

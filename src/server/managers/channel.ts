@@ -1,6 +1,9 @@
 import type { Redis } from "ioredis";
 import type { Connection } from "../connection";
 import type { ChannelPattern } from "../types";
+import { MessageStream } from "../persistence/message-stream";
+import type { PersistedMessage } from "../persistence/types";
+import type { PersistenceManager } from "./persistence";
 
 export class ChannelManager {
   private redis: Redis;
@@ -13,6 +16,8 @@ export class ChannelManager {
   > = new Map();
   private channelSubscriptions: { [channel: string]: Set<Connection> } = {};
   private emitError: (error: Error) => void;
+  private messageStream: MessageStream;
+  private persistenceManager?: PersistenceManager;
 
   constructor(
     redis: Redis,
@@ -24,6 +29,15 @@ export class ChannelManager {
     this.pubClient = pubClient;
     this.subClient = subClient;
     this.emitError = emitError;
+    this.messageStream = MessageStream.getInstance();
+  }
+
+  /**
+   * Set the persistence manager for this channel manager
+   * @param manager The persistence manager to use
+   */
+  setPersistenceManager(manager: PersistenceManager): void {
+    this.persistenceManager = manager;
   }
 
   /**
@@ -89,19 +103,25 @@ export class ChannelManager {
    * @param {number} [history=0] - The number of historical messages to retain for the channel. Defaults to 0, meaning no history is retained.
    *                               If greater than 0, the message will be added to the channel's history and the history will be trimmed to the specified size.
    *                               Messages are appended to the end of the history list using RPUSH.
+   * @param {string} instanceId - The ID of the server instance.
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
    * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `rpush`, `ltrim`, `publish`) fail.
    */
   async publishToChannel(
     channel: string,
     message: any,
-    history: number = 0
+    history: number = 0,
+    instanceId: string
   ): Promise<void> {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
       await this.pubClient.rpush(`mesh:history:${channel}`, message);
       await this.pubClient.ltrim(`mesh:history:${channel}`, -parsedHistory, -1);
     }
+
+    // publish to the message stream for persistence and other subscribers
+    this.messageStream.publishMessage(channel, message, instanceId);
+
     await this.pubClient.publish(channel, message);
   }
 
@@ -177,15 +197,55 @@ export class ChannelManager {
   }
 
   /**
-   * Gets channel history from Redis
+   * Gets channel history from Redis or persistence
    *
    * @param channel - The channel to get history for
    * @param limit - The maximum number of history items to retrieve
+   * @param since - Optional cursor (timestamp or message ID) to retrieve messages after
    * @returns A promise that resolves to an array of history items
    */
-  async getChannelHistory(channel: string, limit: number): Promise<string[]> {
+  async getChannelHistory(
+    channel: string,
+    limit: number,
+    since?: string | number
+  ): Promise<string[]> {
+    // if persistence is enabled for this channel and we have a since parameter,
+    // use the persistence system to get the history
+    if (this.persistenceManager && since !== undefined) {
+      try {
+        const messages = await this.persistenceManager.getMessages(
+          channel,
+          since,
+          limit
+        );
+        return messages.map((msg: PersistedMessage) => msg.message);
+      } catch (err) {
+        // if persistence fails or isn't enabled for this channel, fall back to Redis
+        const historyKey = `mesh:history:${channel}`;
+        return this.redis.lrange(historyKey, 0, limit - 1);
+      }
+    }
+
     const historyKey = `mesh:history:${channel}`;
     return this.redis.lrange(historyKey, 0, limit - 1);
+  }
+
+  /**
+   * Get persisted messages for a channel with full metadata
+   * @param channel Channel to get messages for
+   * @param since Optional cursor (timestamp or message ID) to retrieve messages after
+   * @param limit Maximum number of messages to retrieve
+   */
+  async getPersistedMessages(
+    channel: string,
+    since?: string | number,
+    limit?: number
+  ): Promise<PersistedMessage[]> {
+    if (!this.persistenceManager) {
+      throw new Error("Persistence not enabled");
+    }
+
+    return this.persistenceManager.getMessages(channel, since, limit);
   }
 
   /**
