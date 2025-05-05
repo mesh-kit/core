@@ -835,4 +835,24 @@ export class MeshServer extends WebSocketServer {
   async dispose() {
     await this.instanceManager.cleanupDeadInstance(this.instanceId);
   }
+
+  /**
+   * Registers a callback function to be executed when a record is updated.
+   *
+   * @param {(data: { recordId: string; value: any }) => Promise<void> | void} callback - The function to execute when a record is updated.
+   * @returns {() => void} A function that, when called, will unregister the callback.
+   */
+  onRecordUpdate(callback: (data: { recordId: string; value: any }) => Promise<void> | void): () => void {
+    return this.recordManager.onRecordUpdate(callback);
+  }
+
+  /**
+   * Registers a callback function to be executed when a record is removed.
+   *
+   * @param {(data: { recordId: string; value: any }) => Promise<void> | void} callback - The function to execute when a record is removed.
+   * @returns {() => void} A function that, when called, will unregister the callback.
+   */
+  onRecordRemoved(callback: (data: { recordId: string; value: any }) => Promise<void> | void): () => void {
+    return this.recordManager.onRecordRemoved(callback);
+  }
 }

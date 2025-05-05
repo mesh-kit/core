@@ -6,6 +6,8 @@ const RECORD_VERSION_KEY_PREFIX = "mesh:record-version:";
 
 export class RecordManager {
   private redis: Redis;
+  private recordUpdateCallbacks: Array<(data: { recordId: string; value: any }) => Promise<void> | void> = [];
+  private recordRemovedCallbacks: Array<(data: { recordId: string; value: any }) => Promise<void> | void> = [];
 
   constructor(redis: Redis) {
     this.redis = redis;
@@ -104,6 +106,20 @@ export class RecordManager {
     pipeline.set(versionKey, newVersion.toString());
     await pipeline.exec();
 
+    if (this.recordUpdateCallbacks.length > 0) {
+      Promise.all(
+        this.recordUpdateCallbacks.map(async (callback) => {
+          try {
+            await callback({ recordId, value: newValue });
+          } catch (error) {
+            console.error(`Error in record update callback for ${recordId}:`, error);
+          }
+        }),
+      ).catch((error) => {
+        console.error(`Error in record update callbacks for ${recordId}:`, error);
+      });
+    }
+
     return { patch, version: newVersion };
   }
 
@@ -115,9 +131,51 @@ export class RecordManager {
    * @throws {Error} If an error occurs during the Redis pipeline execution, the promise will be rejected with the error.
    */
   async deleteRecord(recordId: string): Promise<void> {
+    const record = this.recordRemovedCallbacks.length > 0 ? await this.getRecord(recordId) : null;
+
     const pipeline = this.redis.pipeline();
     pipeline.del(this.recordKey(recordId));
     pipeline.del(this.recordVersionKey(recordId));
     await pipeline.exec();
+
+    if (this.recordRemovedCallbacks.length > 0) {
+      Promise.all(
+        this.recordRemovedCallbacks.map(async (callback) => {
+          try {
+            await callback({ recordId, value: record });
+          } catch (error) {
+            console.error(`Error in record removed callback for ${recordId}:`, error);
+          }
+        }),
+      ).catch((error) => {
+        console.error(`Error in record removed callbacks for ${recordId}:`, error);
+      });
+    }
+  }
+
+  /**
+   * Registers a callback function to be called when a record is updated.
+   *
+   * @param {(data: { recordId: string; value: any }) => Promise<void> | void} callback - The callback function to execute when a record is updated.
+   * @returns {() => void} A function that, when called, will unregister the callback.
+   */
+  onRecordUpdate(callback: (data: { recordId: string; value: any }) => Promise<void> | void): () => void {
+    this.recordUpdateCallbacks.push(callback);
+    return () => {
+      this.recordUpdateCallbacks = this.recordUpdateCallbacks.filter((cb) => cb !== callback);
+    };
+  }
+
+  /**
+   * Registers a callback function to be called when a record is removed.
+   *
+   * @param {(data: { recordId: string; value: any }) => Promise<void> | void} callback - The callback function to execute when a record is removed.
+   * @returns {() => void} A function that, when called, will unregister the callback.
+   */
+  onRecordRemoved(callback: (data: { recordId: string; value: any }) => Promise<void> | void): () => void {
+    this.recordRemovedCallbacks.push(callback);
+    return () => {
+      this.recordRemovedCallbacks = this.recordRemovedCallbacks.filter((cb) => cb !== callback);
+    };
   }
 }
