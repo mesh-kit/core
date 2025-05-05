@@ -320,6 +320,14 @@ export class MeshServer extends WebSocketServer {
     return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue);
   }
 
+  async getRecord(recordId: string): Promise<any> {
+    return this.recordManager.getRecord(recordId);
+  }
+
+  async deleteRecord(recordId: string): Promise<void> {
+    return this.recordManager.deleteRecord(recordId);
+  }
+
   // #endregion
 
   // #region Room Management
