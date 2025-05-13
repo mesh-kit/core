@@ -17,6 +17,7 @@ import { PubSubManager } from "./managers/pubsub";
 import { RecordSubscriptionManager } from "./managers/record-subscription";
 import { RedisManager } from "./managers/redis";
 import { InstanceManager } from "./managers/instance";
+import { CollectionManager } from "./managers/collection";
 import type { ChannelPattern, MeshServerOptions, SocketMiddleware } from "./types";
 import { PersistenceManager } from "./managers/persistence";
 import type { PersistenceOptions } from "./persistence/types";
@@ -31,6 +32,7 @@ export class MeshServer extends WebSocketServer {
   private channelManager: ChannelManager;
   private pubSubManager: PubSubManager;
   private recordSubscriptionManager: RecordSubscriptionManager;
+  private collectionManager: CollectionManager;
   private broadcastManager: BroadcastManager;
   private persistenceManager: PersistenceManager | null = null;
   roomManager: RoomManager;
@@ -93,14 +95,36 @@ export class MeshServer extends WebSocketServer {
 
     this.channelManager.setPersistenceManager(this.persistenceManager);
     this.recordSubscriptionManager = new RecordSubscriptionManager(this.redisManager.pubClient, this.recordManager, (err) => this.emit("error", err));
+    this.collectionManager = new CollectionManager(this.redisManager.redis, (err) => this.emit("error", err));
+
+    this.recordManager.onRecordUpdate(async ({ recordId }) => {
+      try {
+        await this.collectionManager.publishRecordChange(recordId);
+      } catch (error) {
+        this.emit("error", new Error(`Failed to publish record update for collection check: ${error}`));
+      }
+    });
+
+    this.recordManager.onRecordRemoved(async ({ recordId }) => {
+      try {
+        await this.collectionManager.publishRecordChange(recordId);
+      } catch (error) {
+        this.emit("error", new Error(`Failed to publish record removal for collection check: ${error}`));
+      }
+    });
+
     this.pubSubManager = new PubSubManager(
       this.redisManager.subClient,
       this.instanceId,
       this.connectionManager,
+      this.recordManager,
       this.recordSubscriptionManager.getRecordSubscriptions(),
       this.channelManager.getSubscribers.bind(this.channelManager),
       (err) => this.emit("error", err),
+      this.collectionManager,
+      this.redisManager.pubClient,
     );
+
     this.broadcastManager = new BroadcastManager(
       this.connectionManager,
       this.roomManager,
@@ -326,6 +350,32 @@ export class MeshServer extends WebSocketServer {
 
   async deleteRecord(recordId: string): Promise<void> {
     return this.recordManager.deleteRecord(recordId);
+  }
+
+  /**
+   * Lists all records matching a pattern in Redis.
+   *
+   * @param {string} pattern - The pattern to match record IDs against.
+   * @returns {Promise<string[]>} The matching record IDs.
+   */
+  async listRecordsMatching(pattern: string): Promise<string[]> {
+    return this.collectionManager.listRecordsMatching(pattern);
+  }
+
+  // #endregion
+
+  // #region Collection Management
+
+  /**
+   * Exposes a collection pattern for client subscriptions with a resolver function
+   * that determines which record IDs belong to the collection.
+   *
+   * @param {ChannelPattern} pattern - The collection ID or pattern to expose.
+   * @param {(connection: Connection, collectionId: string) => Promise<string[]> | string[]} resolver -
+   *        Function that resolves which record IDs belong to the collection.
+   */
+  exposeCollection(pattern: ChannelPattern, resolver: (connection: Connection, collectionId: string) => Promise<string[]> | string[]): void {
+    this.collectionManager.exposeCollection(pattern, resolver);
   }
 
   // #endregion
@@ -732,7 +782,6 @@ export class MeshServer extends WebSocketServer {
 
       try {
         const present = await this.presenceManager.getPresentConnections(roomName);
-
         const statesMap = await this.presenceManager.getAllPresenceStates(roomName);
         const states: Record<string, Record<string, any>> = {};
 
@@ -750,6 +799,70 @@ export class MeshServer extends WebSocketServer {
         return { success: false, present: [] };
       }
     });
+
+    this.exposeCommand<{ collectionId: string; mode?: "patch" | "full" }, { success: boolean; recordIds: string[]; records: any[]; version: number }>(
+      "mesh/subscribe-collection",
+      async (ctx) => {
+        const { collectionId, mode = "full" } = ctx.payload;
+        const connectionId = ctx.connection.id;
+
+        if (!(await this.collectionManager.isCollectionExposed(collectionId, ctx.connection))) {
+          return { success: false, recordIds: [], records: [], version: 0 };
+        }
+
+        try {
+          const { recordIds, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection, mode);
+
+          const recordsWithId = await Promise.all(
+            recordIds.map(async (id) => {
+              const record = await this.recordManager.getRecord(id);
+              return record ? { id, record } : null;
+            }),
+          );
+
+          // filter out any null results (where record fetch failed)
+          const validRecordsWithId = recordsWithId.filter((item): item is { id: string; record: any } => item !== null);
+
+          return { success: true, recordIds, records: validRecordsWithId, version };
+        } catch (e) {
+          console.error(`Failed to subscribe to collection ${collectionId}:`, e);
+          return { success: false, recordIds: [], records: [], version: 0 };
+        }
+      },
+    );
+
+    this.exposeCommand<{ collectionId: string }, boolean>("mesh/unsubscribe-collection", async (ctx) => {
+      const { collectionId } = ctx.payload;
+      const connectionId = ctx.connection.id;
+
+      return this.collectionManager.removeSubscription(collectionId, connectionId);
+    });
+
+    this.exposeCommand<{ collectionId: string }, { success: boolean; added: string[]; removed: string[]; version: number }>(
+      "mesh/refresh-collection",
+      async (ctx) => {
+        const { collectionId } = ctx.payload;
+        const connectionId = ctx.connection.id;
+
+        if (!(await this.collectionManager.isCollectionExposed(collectionId, ctx.connection))) {
+          return { success: false, added: [], removed: [], version: 0 };
+        }
+
+        try {
+          const { added, removed, version } = await this.collectionManager.refreshCollection(collectionId, connectionId, ctx.connection);
+
+          return {
+            success: true,
+            added,
+            removed,
+            version,
+          };
+        } catch (e) {
+          console.error(`Failed to refresh collection ${collectionId}:`, e);
+          return { success: false, added: [], removed: [], version: 0 };
+        }
+      },
+    );
   }
 
   // #endregion
@@ -764,6 +877,7 @@ export class MeshServer extends WebSocketServer {
       await this.roomManager.cleanupConnection(connection);
       this.recordSubscriptionManager.cleanupConnection(connection);
       this.channelManager.cleanupConnection(connection);
+      await this.collectionManager.cleanupConnection(connection);
     } catch (err) {
       this.emit("error", new Error(`Failed to clean up connection: ${err}`));
     }

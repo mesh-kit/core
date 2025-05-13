@@ -1,7 +1,10 @@
 import type { PersistenceAdapter, PersistedMessage, PersistenceAdapterOptions } from "./types";
 import { serverLogger } from "../../common/logger";
+import sqlite3 from "sqlite3";
 
-type SQLiteDatabase = any;
+const { Database } = sqlite3;
+
+type SQLiteDatabase = sqlite3.Database;
 
 export class SQLitePersistenceAdapter implements PersistenceAdapter {
   private db: SQLiteDatabase | null = null;
@@ -20,29 +23,22 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
 
     return new Promise<void>((resolve, reject) => {
       try {
-        import("sqlite3")
-          .then((sqlite3) => {
-            const { Database } = sqlite3;
-            this.db = new Database(this.options.filename as string, (err: any) => {
-              if (err) {
-                serverLogger.error("Failed to open SQLite database:", err);
-                reject(err);
-                return;
-              }
+        this.db = new Database(this.options.filename as string, (err: Error | null) => {
+          if (err) {
+            serverLogger.error("Failed to open SQLite database:", err);
+            reject(err);
+            return;
+          }
 
-              this.createTables()
-                .then(() => {
-                  this.initialized = true;
-                  resolve();
-                })
-                .catch(reject);
-            });
-          })
-          .catch((err) => {
-            serverLogger.error("Failed to import sqlite3. Make sure it's installed: npm install sqlite3", err);
-            reject(new Error("Failed to import sqlite3. Make sure it's installed: npm install sqlite3"));
-          });
+          this.createTables()
+            .then(() => {
+              this.initialized = true;
+              resolve();
+            })
+            .catch(reject);
+        });
       } catch (err) {
+        serverLogger.error("Error initializing SQLite database:", err);
         reject(err);
       }
     });

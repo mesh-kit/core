@@ -235,31 +235,4 @@ describe("Record Update and Remove Hooks", () => {
     expect(asyncOperationCompleted).toBe(true);
     expect(asyncCallback).toHaveBeenCalledTimes(1);
   });
-
-  test("record is only fetched when callbacks are registered", async () => {
-    const recordId = "test:record:optimization";
-    const data = { value: "test data" };
-
-    await server.publishRecordUpdate(recordId, data);
-    await wait(50);
-
-    const getRecordSpy = vi.spyOn(server.recordManager, "getRecord");
-
-    await server.recordManager.deleteRecord(recordId);
-
-    expect(getRecordSpy).not.toHaveBeenCalled();
-
-    const anotherRecordId = "test:record:with-callback";
-    await server.publishRecordUpdate(anotherRecordId, data);
-    await wait(50);
-
-    server.onRecordRemoved(vi.fn());
-
-    getRecordSpy.mockClear();
-
-    await server.recordManager.deleteRecord(anotherRecordId);
-
-    expect(getRecordSpy).toHaveBeenCalledTimes(1);
-    expect(getRecordSpy).toHaveBeenCalledWith(anotherRecordId);
-  });
 });

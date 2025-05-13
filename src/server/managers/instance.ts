@@ -181,12 +181,32 @@ export class InstanceManager {
     }
   }
 
+  private async deleteMatchingKeys(pattern: string) {
+    const stream = this.redis.scanStream({ match: pattern });
+    const pipeline = this.redis.pipeline();
+
+    stream.on("data", (keys: string[]) => {
+      for (const key of keys) {
+        pipeline.del(key);
+      }
+    });
+
+    return new Promise<void>((resolve, reject) => {
+      stream.on("end", async () => {
+        await pipeline.exec();
+        resolve();
+      });
+      stream.on("error", reject);
+    });
+  }
+
   /**
-   * Cleans up a single stale connection by:
+   * Cleans up a connection by:
    * 1. Removing it from all rooms it was a member of
    * 2. Removing it from presence tracking in those rooms
    * 3. Deleting its room membership record
    * 4. Removing it from the connections hash
+   * 5. Removing its collection subscription keys
    */
   private async cleanupConnection(connectionId: string): Promise<void> {
     try {
@@ -204,6 +224,8 @@ export class InstanceManager {
 
       pipeline.del(roomsKey);
       pipeline.hdel("mesh:connections", connectionId);
+
+      await this.deleteMatchingKeys(`mesh:collection:*:${connectionId}`);
 
       await pipeline.exec();
 

@@ -94,6 +94,17 @@ export class MeshClient extends EventEmitter {
     }
   > = new Map();
 
+  private collectionSubscriptions: Map<
+    string, // collectionId
+    {
+      recordIds: Set<string>;
+      version: number;
+      mode: "patch" | "full";
+      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
+    }
+  > = new Map();
+
   private presenceSubscriptions: Map<
     string, // roomName
     (update: {
@@ -198,6 +209,8 @@ export class MeshClient extends EventEmitter {
             this._lastActivityTime = Date.now();
 
             if (eventName === "visibilitychange" && doc.visibilityState === "visible") {
+              if (this._status === Status.OFFLINE) return;
+
               // send noop. if it fails for any reason, force reconnect
               this.command("mesh/noop", {}, 5000)
                 .then(() => {
@@ -269,6 +282,8 @@ export class MeshClient extends EventEmitter {
         this.handlePresenceUpdate(data.payload);
       } else if (data.command === "mesh/subscription-message") {
         this.handleChannelMessage(data.payload);
+      } else if (data.command === "mesh/collection-diff") {
+        this.handleCollectionDiff(data.payload);
       } else {
         const systemCommands = ["ping", "pong", "latency", "latency:request", "latency:response"];
         if (data.command && !systemCommands.includes(data.command)) {
@@ -542,12 +557,27 @@ export class MeshClient extends EventEmitter {
 
   private async handleRecordUpdate(payload: { recordId: string; full?: any; patch?: Operation[]; version: number }) {
     const { recordId, full, patch, version } = payload;
-    const subscription = this.recordSubscriptions.get(recordId);
 
+    // first, check if this record is part of any collections and notify their onUpdate callbacks
+    for (const [collectionId, collectionSub] of this.collectionSubscriptions.entries()) {
+      if (collectionSub.recordIds.has(recordId) && collectionSub.onUpdate) {
+        try {
+          await collectionSub.onUpdate(recordId, payload);
+        } catch (error) {
+          clientLogger.error(`Error in collection record update callback for ${collectionId}:`, error);
+        }
+      }
+    }
+
+    // then check for direct record subscriptions
+    const subscription = this.recordSubscriptions.get(recordId);
     if (!subscription) {
+      // if there's no direct subscription (e.g., only via collection), we might still have processed
+      // the collection update above. if not, this update isn't relevant to the client directly
       return;
     }
 
+    // handle the direct subscription logic (version checks, callback)
     if (patch) {
       if (version !== subscription.localVersion + 1) {
         // desync
@@ -564,13 +594,69 @@ export class MeshClient extends EventEmitter {
 
       subscription.localVersion = version;
       await subscription.callback({ recordId, patch, version });
+    } else if (full !== undefined) {
+      subscription.localVersion = version;
+      await subscription.callback({ recordId, full, version });
+    }
+  }
+
+  /**
+   * Handles collection diff messages from the server.
+   * Updates the local collection state and triggers callbacks.
+   *
+   * @param {Object} payload - The collection diff payload.
+   * @param {string} payload.collectionId - The ID of the collection.
+   * @param {string[]} payload.added - Array of record IDs added to the collection.
+   * @param {string[]} payload.removed - Array of record IDs removed from the collection.
+   * @param {number} payload.version - The new version of the collection.
+   */
+  private async handleCollectionDiff(payload: { collectionId: string; added: string[]; removed: string[]; version: number }) {
+    const { collectionId, added, removed, version } = payload;
+
+    const subscription = this.collectionSubscriptions.get(collectionId);
+
+    if (!subscription) {
+      return;
+    }
+
+    // check for version mismatch
+    if (version !== subscription.version + 1) {
+      clientLogger.warn(
+        `Desync detected for collection ${collectionId}. Expected version ${
+          subscription.version + 1
+        }, got ${version}. Resubscribing to request full collection.`,
+      );
+
+      // unsubscribe and resubscribe to force a full update
+      await this.unsubscribeCollection(collectionId);
+      await this.subscribeCollection(collectionId, {
+        mode: subscription.mode,
+        onUpdate: subscription.onUpdate,
+        onDiff: subscription.onDiff,
+      });
 
       return;
     }
 
-    if (full !== undefined) {
-      subscription.localVersion = version;
-      await subscription.callback({ recordId, full, version });
+    // update the local version
+    subscription.version = version;
+
+    // update the local record IDs set
+    for (const recordId of added) {
+      subscription.recordIds.add(recordId);
+    }
+
+    for (const recordId of removed) {
+      subscription.recordIds.delete(recordId);
+    }
+
+    // notify the diff callback
+    if (subscription.onDiff) {
+      try {
+        await subscription.onDiff({ added, removed, version });
+      } catch (error) {
+        clientLogger.error(`Error in collection diff callback for ${collectionId}:`, error);
+      }
     }
   }
 
@@ -722,6 +808,144 @@ export class MeshClient extends EventEmitter {
     } catch (error) {
       clientLogger.error(`Failed to unsubscribe from record ${recordId}:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Subscribes to a collection and registers callbacks for updates and diffs.
+   *
+   * @param {string} collectionId - The ID of the collection to subscribe to.
+   * @param {Object} options - Subscription options.
+   * @param {("patch"|"full")} [options.mode="full"] - The subscription mode for records.
+   * @param {Function} [options.onUpdate] - Callback for record updates.
+   * @param {Function} [options.onDiff] - Callback for collection membership changes.
+   * @returns {Promise<{success: boolean; recordIds: string[]; records: Array<{id: string; record: any}>; version: number}>} Initial state of the collection including records data structured as {id, record}.
+   */
+  async subscribeCollection(
+    collectionId: string,
+    options: {
+      mode?: "patch" | "full";
+      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
+    } = {},
+  ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {
+    const mode = options.mode ?? "full";
+
+    try {
+      const result = await this.command("mesh/subscribe-collection", {
+        collectionId,
+        mode,
+      });
+
+      if (result.success) {
+        this.collectionSubscriptions.set(collectionId, {
+          recordIds: new Set(result.recordIds),
+          version: result.version,
+          mode,
+          onUpdate: options.onUpdate,
+          onDiff: options.onDiff,
+        });
+        // if onDiff is provided, call it with the initial set of records
+        if (options.onDiff) {
+          try {
+            await options.onDiff({
+              added: result.recordIds,
+              removed: [],
+              version: result.version,
+            });
+          } catch (error) {
+            clientLogger.error(`Error in initial collection diff callback for ${collectionId}:`, error);
+          }
+        }
+      }
+
+      return {
+        success: result.success,
+        recordIds: result.recordIds || [],
+        records: result.records || [],
+        version: result.version || 0,
+      };
+    } catch (error) {
+      clientLogger.error(`Failed to subscribe to collection ${collectionId}:`, error);
+      return { success: false, recordIds: [], records: [], version: 0 };
+    }
+  }
+
+  /**
+   * Unsubscribes from a collection.
+   *
+   * @param {string} collectionId - The ID of the collection to unsubscribe from.
+   * @returns {Promise<boolean>} True if successful, false otherwise.
+   */
+  async unsubscribeCollection(collectionId: string): Promise<boolean> {
+    try {
+      const success = await this.command("mesh/unsubscribe-collection", {
+        collectionId,
+      });
+
+      if (success) {
+        this.collectionSubscriptions.delete(collectionId);
+      }
+
+      return success;
+    } catch (error) {
+      clientLogger.error(`Failed to unsubscribe from collection ${collectionId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Manually refreshes a collection subscription to check for changes.
+   *
+   * @param {string} collectionId - The ID of the collection to refresh.
+   * @returns {Promise<{success: boolean; added: string[]; removed: string[]; version: number}>} The refresh result.
+   */
+  async refreshCollection(collectionId: string): Promise<{ success: boolean; added: string[]; removed: string[]; version: number }> {
+    try {
+      const result = await this.command("mesh/refresh-collection", {
+        collectionId,
+      });
+
+      if (result.success) {
+        const subscription = this.collectionSubscriptions.get(collectionId);
+
+        if (subscription) {
+          // update the local version
+          subscription.version = result.version;
+
+          // update the local record IDs set
+          for (const recordId of result.added) {
+            subscription.recordIds.add(recordId);
+          }
+
+          for (const recordId of result.removed) {
+            subscription.recordIds.delete(recordId);
+          }
+
+          // notify the diff callback
+          if (subscription.onDiff && (result.added.length > 0 || result.removed.length > 0)) {
+            try {
+              await subscription.onDiff({
+                added: result.added,
+                removed: result.removed,
+                version: result.version,
+              });
+            } catch (error) {
+              clientLogger.error(`Error in collection diff callback for ${collectionId}:`, error);
+            }
+          }
+        }
+      }
+
+      return {
+        success: result.success,
+        added: result.added || [],
+        removed: result.removed || [],
+        version: result.version || 0,
+      };
+    } catch (error) {
+      clientLogger.error(`Failed to refresh collection ${collectionId}:`, error);
+      return { success: false, added: [], removed: [], version: 0 };
     }
   }
 
@@ -1090,6 +1314,22 @@ export class MeshClient extends EventEmitter {
         }
       });
 
+      // collections
+      const collectionPromises = Array.from(this.collectionSubscriptions.entries()).map(async ([collectionId, subscription]) => {
+        try {
+          clientLogger.info(`Resubscribing to collection: ${collectionId}`);
+          await this.subscribeCollection(collectionId, {
+            mode: subscription.mode,
+            onUpdate: subscription.onUpdate,
+            onDiff: subscription.onDiff,
+          });
+          return true;
+        } catch (error) {
+          clientLogger.error(`Failed to resubscribe to collection ${collectionId}:`, error);
+          return false;
+        }
+      });
+
       // channels
       const channelPromises = Array.from(this.channelSubscriptions.entries()).map(async ([channel, { callback, historyLimit }]) => {
         try {
@@ -1107,6 +1347,7 @@ export class MeshClient extends EventEmitter {
         // ...roomPromises,
         ...recordPromises,
         ...channelPromises,
+        ...collectionPromises,
       ]);
 
       const successCount = results.filter((r) => r.status === "fulfilled" && r.value === true).length;
