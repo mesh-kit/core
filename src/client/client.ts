@@ -88,7 +88,7 @@ export class MeshClient extends EventEmitter {
   private recordSubscriptions: Map<
     string, // recordId
     {
-      callback: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
       localVersion: number;
       mode: "patch" | "full";
     }
@@ -516,7 +516,7 @@ export class MeshClient extends EventEmitter {
    * @param {number} expiresIn - Timeout in milliseconds.
    * @returns {Promise<unknown>} A promise that resolves with the command result.
    */
-  command(command: string, payload?: any, expiresIn: number = 30000): Promise<any> {
+  async command(command: string, payload?: any, expiresIn: number = 30000): Promise<any> {
     if (this._status !== Status.ONLINE) {
       return this.connect()
         .then(() => this.connection.command(command, payload, expiresIn))
@@ -593,10 +593,14 @@ export class MeshClient extends EventEmitter {
       }
 
       subscription.localVersion = version;
-      await subscription.callback({ recordId, patch, version });
+      if (subscription.callback) {
+        await subscription.callback({ recordId, patch, version });
+      }
     } else if (full !== undefined) {
       subscription.localVersion = version;
-      await subscription.callback({ recordId, full, version });
+      if (subscription.callback) {
+        await subscription.callback({ recordId, full, version });
+      }
     }
   }
 
@@ -673,7 +677,7 @@ export class MeshClient extends EventEmitter {
    * @returns {Promise<{ success: boolean; history: string[] }>} A promise that resolves with the subscription result,
    *          including a success flag and an array of historical messages.
    */
-  subscribeChannel(
+  async subscribeChannel(
     channel: string,
     callback: (message: string) => void | Promise<void>,
     options?: { historyLimit?: number; since?: string | number },
@@ -754,7 +758,7 @@ export class MeshClient extends EventEmitter {
    */
   async subscribeRecord(
     recordId: string,
-    callback: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>,
+    callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>,
     options?: { mode?: "patch" | "full" },
   ): Promise<{ success: boolean; record: any | null; version: number }> {
     const mode = options?.mode ?? "full";
@@ -772,11 +776,13 @@ export class MeshClient extends EventEmitter {
           mode,
         });
 
-        await callback({
-          recordId,
-          full: result.record,
-          version: result.version,
-        });
+        if (callback) {
+          await callback({
+            recordId,
+            full: result.record,
+            version: result.version,
+          });
+        }
       }
 
       return {

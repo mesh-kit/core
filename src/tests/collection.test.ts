@@ -112,6 +112,7 @@ describe("Collection Subscriptions", () => {
     const unsubResult = await client.unsubscribeCollection("collection:all-tasks");
     expect(unsubResult).toBe(true);
   });
+
   test("should return initial records in subscription result", async () => {
     const initialRecord1 = { id: "initial:task:1", title: "Initial Task 1", done: false };
     const initialRecord2 = { id: "initial:task:2", title: "Initial Task 2", done: true };
@@ -122,27 +123,22 @@ describe("Collection Subscriptions", () => {
     server.exposeRecord("initial:task:*");
     server.exposeCollection("collection:initial-tasks", async () => server.listRecordsMatching("initial:task:*"));
 
-    const mockOnUpdate = vi.fn(); // Still needed for subsequent updates
+    const mockOnUpdate = vi.fn();
     const mockOnDiff = vi.fn();
 
-    // Type assertion for the expected new return structure
     const result = (await client.subscribeCollection("collection:initial-tasks", {
       onUpdate: mockOnUpdate,
       onDiff: mockOnDiff,
     })) as { success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }; // Updated records type
 
-    // 1. Check the initial subscription result structure and content
     expect(result.success).toBe(true);
     expect(result.version).toBe(1);
     expect(result.recordIds).toBeInstanceOf(Array);
     expect(result.recordIds.length).toBe(2);
     expect(result.recordIds).toEqual(expect.arrayContaining([initialRecord1.id, initialRecord2.id]));
 
-    // NEW: Check for the initial records data with the new structure
     expect(result.records).toBeInstanceOf(Array);
-    console.log(result.records);
     expect(result.records.length).toBe(2);
-    // Check that the array contains objects with the expected structure and data
     expect(result.records).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -156,7 +152,7 @@ describe("Collection Subscriptions", () => {
       ]),
     );
 
-    // 2. Check that onDiff was called once with the initial state
+    // onDiff was called once with the initial state
     expect(mockOnDiff).toHaveBeenCalledTimes(1);
     expect(mockOnDiff).toHaveBeenCalledWith({
       added: expect.arrayContaining([initialRecord1.id, initialRecord2.id]),
@@ -164,13 +160,13 @@ describe("Collection Subscriptions", () => {
       version: 1,
     });
 
-    // 3. Check that onUpdate was NOT called during the initial subscription
+    // onUpdate was NOT called during the initial subscription
     expect(mockOnUpdate).not.toHaveBeenCalled();
 
-    // Optional: Test subsequent update still calls onUpdate
+    // subsequent update still calls onUpdate
     const updatedRecord1 = { ...initialRecord1, title: "Updated Task 1" };
     await server.publishRecordUpdate(initialRecord1.id, updatedRecord1);
-    await wait(100); // Wait for update propagation
+    await wait(100);
     expect(mockOnUpdate).toHaveBeenCalledTimes(1);
     expect(mockOnUpdate).toHaveBeenCalledWith(initialRecord1.id, expect.objectContaining({ full: updatedRecord1 }));
 
@@ -181,32 +177,30 @@ describe("Collection Subscriptions", () => {
     const collectionId = "collection:cleanup-test";
     const recordId = "cleanup:task:1";
     const recordData = { id: recordId, title: "Cleanup Test Task" };
-    // Need to get connectionId *after* connect but *before* close
-    const connectionId = client.connectionId;
-    expect(connectionId).toBeDefined(); // Ensure we have a connection ID
+    const { connectionId } = client;
+    expect(connectionId).toBeDefined();
     const redisKeyPattern = `mesh:collection:${collectionId}:${connectionId}`;
 
-    // 1. Setup collection and record
+    // expose record and collection
     await server.publishRecordUpdate(recordId, recordData);
     server.exposeRecord("cleanup:task:*");
     server.exposeCollection(collectionId, async () => server.listRecordsMatching("cleanup:task:*"));
 
-    // 2. Subscribe to the collection
+    // subscribe to collection
     const subResult = await client.subscribeCollection(collectionId);
     expect(subResult.success).toBe(true);
     expect(subResult.recordIds).toContain(recordId);
 
-    // 3. Verify the Redis key exists
+    // verify redis key exists
     const keyExistsBefore = await redis.exists(redisKeyPattern);
-    expect(keyExistsBefore).toBe(1); // Key should exist
+    expect(keyExistsBefore).toBe(1);
 
-    // 4. Disconnect the client
     await client.close();
-    await wait(200); // Wait for server-side cleanup handlers
+    await wait(200);
 
-    // 5. Verify the Redis key is deleted
+    // verify redis key is deleted
     const keyExistsAfter = await redis.exists(redisKeyPattern);
-    expect(keyExistsAfter).toBe(0); // Key should be deleted
+    expect(keyExistsAfter).toBe(0);
   });
 
   test("should support dynamic collections based on patterns", async () => {
@@ -267,6 +261,7 @@ describe("Collection Subscriptions", () => {
       const recordExists = await redis.exists("mesh:record:project:1:task:2");
       expect(recordExists).toBe(1);
     } else {
+      // otherwise, we expect the added array to contain the new record
       expect(refreshResult.added).toContain("project:1:task:2");
       expect(refreshResult.removed).toEqual([]);
       expect(refreshResult.version).toBe(2);

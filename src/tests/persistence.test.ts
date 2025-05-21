@@ -96,7 +96,7 @@ describe("Persistence System", () => {
     });
 
     test("enables persistence for channels matching a pattern", () => {
-      const patterns = (persistenceManager as any).patterns;
+      const patterns = (persistenceManager as any).channelPatterns;
       const initialLength = patterns.length;
 
       persistenceManager.enablePersistenceForChannels("chat:*", {

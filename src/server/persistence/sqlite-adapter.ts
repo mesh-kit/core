@@ -1,6 +1,7 @@
-import type { PersistenceAdapter, PersistedMessage, PersistenceAdapterOptions } from "./types";
+import type { PersistenceAdapter, PersistedMessage, PersistenceAdapterOptions, PersistedRecord } from "./types";
 import { serverLogger } from "../../common/logger";
 import sqlite3 from "sqlite3";
+import { convertToSqlPattern } from "../utils/pattern-conversion";
 
 const { Database } = sqlite3;
 
@@ -69,7 +70,29 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
               return;
             }
 
-            resolve();
+            this.db!.run(
+              `CREATE TABLE IF NOT EXISTS records (
+              record_id TEXT PRIMARY KEY,
+              version INTEGER NOT NULL,
+              value TEXT NOT NULL,
+              timestamp INTEGER NOT NULL
+            )`,
+              (err: Error | null) => {
+                if (err) {
+                  reject(err);
+                  return;
+                }
+
+                this.db!.run("CREATE INDEX IF NOT EXISTS idx_records_timestamp ON records (timestamp)", (err: Error | null) => {
+                  if (err) {
+                    reject(err);
+                    return;
+                  }
+
+                  resolve();
+                });
+              },
+            );
           });
         },
       );
@@ -181,6 +204,97 @@ export class SQLitePersistenceAdapter implements PersistenceAdapter {
         this.initialized = false;
         resolve();
       });
+    });
+  }
+  /**
+   * Store records in the database
+   * @param records Array of records to store
+   */
+  async storeRecords(records: PersistedRecord[]): Promise<void> {
+    if (!this.db) throw new Error("Database not initialized");
+    if (records.length === 0) return;
+
+    serverLogger.debug(`SQLite: Storing ${records.length} records`);
+
+    return new Promise<void>((resolve, reject) => {
+      const db = this.db!;
+
+      db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        const stmt = db.prepare(
+          `INSERT OR REPLACE INTO records
+           (record_id, version, value, timestamp)
+           VALUES (?, ?, ?, ?)`,
+        );
+
+        try {
+          for (const record of records) {
+            stmt.run(record.recordId, record.version, record.value, record.timestamp, (err: Error | null) => {
+              if (err) {
+                serverLogger.error(`Error storing record ${record.recordId}:`, err);
+              }
+            });
+          }
+
+          stmt.finalize();
+
+          db.run("COMMIT", (err: Error | null) => {
+            if (err) {
+              serverLogger.error("Error committing transaction:", err);
+              db.run("ROLLBACK");
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        } catch (err) {
+          serverLogger.error("Error in storeRecords:", err);
+          db.run("ROLLBACK");
+          reject(err);
+        }
+      });
+    });
+  }
+
+  /**
+   * Get records matching a pattern
+   * @param pattern Pattern to match record IDs against
+   * @returns Array of matching records
+   */
+  async getRecords(pattern: string): Promise<PersistedRecord[]> {
+    if (!this.db) throw new Error("Database not initialized");
+
+    const sqlPattern = convertToSqlPattern(pattern);
+
+    serverLogger.debug(`SQLite: Getting records matching pattern: ${pattern} (SQL: ${sqlPattern})`);
+
+    return new Promise<PersistedRecord[]>((resolve, reject) => {
+      this.db!.all(
+        `SELECT record_id, version, value, timestamp
+         FROM records
+         WHERE record_id LIKE ?
+         ORDER BY timestamp DESC`,
+        [sqlPattern],
+        (err: Error | null, rows: any[]) => {
+          if (err) {
+            serverLogger.error("Error getting records:", err);
+            reject(err);
+            return;
+          }
+
+          serverLogger.debug(`SQLite: Found ${rows.length} records matching pattern ${pattern}`);
+
+          const records: PersistedRecord[] = rows.map((row) => ({
+            recordId: row.record_id,
+            version: row.version,
+            value: row.value,
+            timestamp: row.timestamp,
+          }));
+
+          resolve(records);
+        },
+      );
     });
   }
 }

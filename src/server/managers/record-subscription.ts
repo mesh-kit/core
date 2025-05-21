@@ -2,11 +2,13 @@ import type { Redis } from "ioredis";
 import type { Connection } from "../connection";
 import type { ChannelPattern } from "../types";
 import type { RecordManager } from "./record";
+import type { PersistenceManager } from "./persistence";
 import { RECORD_PUB_SUB_CHANNEL } from "../utils/constants";
 
 export class RecordSubscriptionManager {
   private pubClient: Redis;
   private recordManager: RecordManager;
+  private persistenceManager: PersistenceManager | null = null;
   private exposedRecords: ChannelPattern[] = [];
   private exposedWritableRecords: ChannelPattern[] = [];
   private recordGuards: Map<ChannelPattern, (connection: Connection, recordId: string) => Promise<boolean> | boolean> = new Map();
@@ -17,10 +19,25 @@ export class RecordSubscriptionManager {
   > = new Map();
   private emitError: (error: Error) => void;
 
-  constructor(pubClient: Redis, recordManager: RecordManager, emitError: (error: Error) => void) {
+  constructor(
+    pubClient: Redis,
+    recordManager: RecordManager,
+    emitError: (error: Error) => void,
+    persistenceManager?: PersistenceManager
+  ) {
     this.pubClient = pubClient;
     this.recordManager = recordManager;
     this.emitError = emitError;
+    this.persistenceManager = persistenceManager || null;
+  }
+
+  /**
+   * Sets the persistence manager for this subscription manager
+   *
+   * @param persistenceManager The persistence manager to use
+   */
+  setPersistenceManager(persistenceManager: PersistenceManager): void {
+    this.persistenceManager = persistenceManager;
   }
 
   /**
@@ -174,6 +191,11 @@ export class RecordSubscriptionManager {
     }
 
     const { patch, version } = updateResult;
+
+    // Use the directly injected persistence manager if available
+    if (this.persistenceManager) {
+      this.persistenceManager.handleRecordUpdate(recordId, newValue, version);
+    }
 
     const messagePayload = {
       recordId,

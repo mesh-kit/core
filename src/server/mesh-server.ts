@@ -20,7 +20,7 @@ import { InstanceManager } from "./managers/instance";
 import { CollectionManager } from "./managers/collection";
 import type { ChannelPattern, MeshServerOptions, SocketMiddleware } from "./types";
 import { PersistenceManager } from "./managers/persistence";
-import type { PersistenceOptions } from "./persistence/types";
+import type { RecordPersistenceOptions, ChannelPersistenceOptions } from "./persistence/types";
 import { PUB_SUB_CHANNEL_PREFIX } from "./utils/constants";
 
 export class MeshServer extends WebSocketServer {
@@ -76,7 +76,7 @@ export class MeshServer extends WebSocketServer {
     this.instanceManager = new InstanceManager(this.redisManager.redis, this.instanceId);
 
     this.roomManager = new RoomManager(this.redisManager.redis);
-    this.recordManager = new RecordManager(this.redisManager.redis);
+    this.recordManager = new RecordManager(this.redisManager.redis, this);
     this.connectionManager = new ConnectionManager(this.redisManager.pubClient, this.instanceId, this.roomManager);
     this.presenceManager = new PresenceManager(this.redisManager.redis, this.roomManager, this.redisManager, this.serverOptions.enablePresenceExpirationEvents);
     if (this.serverOptions.enablePresenceExpirationEvents) {
@@ -94,10 +94,19 @@ export class MeshServer extends WebSocketServer {
     );
 
     this.channelManager.setPersistenceManager(this.persistenceManager);
-    this.recordSubscriptionManager = new RecordSubscriptionManager(this.redisManager.pubClient, this.recordManager, (err) => this.emit("error", err));
+    this.recordSubscriptionManager = new RecordSubscriptionManager(
+      this.redisManager.pubClient,
+      this.recordManager,
+      (err) => this.emit("error", err),
+      this.persistenceManager,
+    );
     this.collectionManager = new CollectionManager(this.redisManager.redis, (err) => this.emit("error", err));
 
-    this.recordManager.onRecordUpdate(async ({ recordId }) => {
+    if (this.persistenceManager) {
+      this.persistenceManager.setRecordManager(this.recordManager);
+    }
+
+    this.recordManager.onRecordUpdate(async ({ recordId, value }) => {
       try {
         await this.collectionManager.publishRecordChange(recordId);
       } catch (error) {
@@ -296,15 +305,30 @@ export class MeshServer extends WebSocketServer {
    * Enables persistence for channels matching the specified pattern.
    *
    * @param {ChannelPattern} pattern - The channel pattern to enable persistence for.
-   * @param {PersistenceOptions} [options] - Options for persistence.
+   * @param {ChannelPersistenceOptions} [options] - Options for persistence.
    * @throws {Error} If persistence is not enabled for this server instance.
    */
-  enablePersistenceForChannels(pattern: ChannelPattern, options: PersistenceOptions = {}): void {
+  enablePersistenceForChannels(pattern: ChannelPattern, options: ChannelPersistenceOptions = {}): void {
     if (!this.persistenceManager) {
       throw new Error("Persistence not enabled. Initialize the persistence manager first.");
     }
 
     this.persistenceManager.enablePersistenceForChannels(pattern, options);
+  }
+
+  /**
+   * Enables persistence for records matching the specified pattern.
+   *
+   * @param {ChannelPattern} pattern - The record ID pattern to enable persistence for.
+   * @param {RecordPersistenceOptions} [options] - Options for persistence.
+   * @throws {Error} If persistence is not enabled for this server instance.
+   */
+  enableRecordPersistence(pattern: ChannelPattern, options: RecordPersistenceOptions = {}): void {
+    if (!this.persistenceManager) {
+      throw new Error("Persistence not enabled. Initialize the persistence manager first.");
+    }
+
+    this.persistenceManager.enableRecordPersistence(pattern, options);
   }
 
   // #endregion
@@ -344,6 +368,12 @@ export class MeshServer extends WebSocketServer {
     return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue);
   }
 
+  /**
+   * Retrieves the value of a record by its ID.
+   *
+   * @param {string} recordId - The ID of the record to retrieve.
+   * @returns {Promise<any>} A promise that resolves to the value of the record, or null if not found.
+   */
   async getRecord(recordId: string): Promise<any> {
     return this.recordManager.getRecord(recordId);
   }
@@ -893,8 +923,6 @@ export class MeshServer extends WebSocketServer {
    * @throws {Error} If an error occurs during shutdown, the promise will be rejected with the error.
    */
   async close(callback?: (err?: Error) => void): Promise<void> {
-    await this.instanceManager.stop();
-
     this.redisManager.isShuttingDown = true;
 
     const connections = Object.values(this.connectionManager.getLocalConnections());
@@ -921,6 +949,8 @@ export class MeshServer extends WebSocketServer {
         serverLogger.error("Error shutting down persistence manager:", err);
       }
     }
+
+    await this.instanceManager.stop();
 
     this.redisManager.disconnect();
 

@@ -1,5 +1,6 @@
 import type { Redis } from "ioredis";
 import jsonpatch, { type Operation } from "fast-json-patch";
+import type { MeshServer } from "../mesh-server";
 
 const RECORD_KEY_PREFIX = "mesh:record:";
 const RECORD_VERSION_KEY_PREFIX = "mesh:record-version:";
@@ -8,16 +9,33 @@ export class RecordManager {
   private redis: Redis;
   private recordUpdateCallbacks: Array<(data: { recordId: string; value: any }) => Promise<void> | void> = [];
   private recordRemovedCallbacks: Array<(data: { recordId: string; value: any }) => Promise<void> | void> = [];
+  private server: MeshServer;
 
-  constructor(redis: Redis) {
+  constructor(redis: Redis, server: MeshServer) {
     this.redis = redis;
+    this.server = server;
   }
 
-  private recordKey(recordId: string): string {
+  /**
+   * Gets the server instance associated with this record manager
+   */
+  getServer(): MeshServer {
+    return this.server;
+  }
+
+  /**
+   * Gets the Redis instance used by this record manager
+   * This is used by the persistence manager to restore records
+   */
+  getRedis(): Redis {
+    return this.redis;
+  }
+
+  recordKey(recordId: string): string {
     return `${RECORD_KEY_PREFIX}${recordId}`;
   }
 
-  private recordVersionKey(recordId: string): string {
+  recordVersionKey(recordId: string): string {
     return `${RECORD_VERSION_KEY_PREFIX}${recordId}`;
   }
 

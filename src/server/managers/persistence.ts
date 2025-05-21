@@ -1,22 +1,33 @@
 import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
-import type { PersistenceAdapter, PersistedMessage, PersistenceOptions } from "../persistence/types";
+import type { PersistenceAdapter, PersistedMessage, ChannelPersistenceOptions, RecordPersistenceOptions, PersistedRecord } from "../persistence/types";
 import { SQLitePersistenceAdapter } from "../persistence/sqlite-adapter";
 import { serverLogger } from "../../common/logger";
 import { MessageStream } from "../persistence/message-stream";
+import { RecordManager } from "./record";
+import { convertToSqlPattern } from "../utils/pattern-conversion";
 
-interface PatternConfig {
+interface ChannelPatternConfig {
   pattern: string | RegExp;
-  options: Required<PersistenceOptions>;
+  options: Required<ChannelPersistenceOptions>;
+}
+
+interface RecordPatternConfig {
+  pattern: string | RegExp;
+  options: Required<RecordPersistenceOptions>;
 }
 
 export class PersistenceManager extends EventEmitter {
   private defaultAdapter: PersistenceAdapter;
-  private patterns: PatternConfig[] = [];
+  private channelPatterns: ChannelPatternConfig[] = [];
+  private recordPatterns: RecordPatternConfig[] = [];
   private messageBuffer: Map<string, PersistedMessage[]> = new Map();
+  private recordBuffer: Map<string, PersistedRecord> = new Map();
   private flushTimers: Map<string, NodeJS.Timeout> = new Map();
+  private recordFlushTimer: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
   private initialized = false;
+  private recordManager: RecordManager | null = null;
 
   private messageStream: MessageStream;
 
@@ -24,6 +35,14 @@ export class PersistenceManager extends EventEmitter {
     super();
     this.defaultAdapter = new SQLitePersistenceAdapter(defaultAdapterOptions);
     this.messageStream = MessageStream.getInstance();
+  }
+
+  /**
+   * Sets the record manager reference for record restoration
+   * @param recordManager The record manager instance
+   */
+  setRecordManager(recordManager: RecordManager): void {
+    this.recordManager = recordManager;
   }
 
   async initialize(): Promise<void> {
@@ -34,10 +53,79 @@ export class PersistenceManager extends EventEmitter {
 
       this.messageStream.subscribeToMessages(this.handleStreamMessage.bind(this));
 
+      await this.restorePersistedRecords();
+
       this.initialized = true;
     } catch (err) {
       serverLogger.error("Failed to initialize persistence manager:", err);
       throw err;
+    }
+  }
+
+  /**
+   * Restores persisted records from storage into Redis on startup
+   */
+  private async restorePersistedRecords(): Promise<void> {
+    if (!this.recordManager) {
+      serverLogger.warn("Cannot restore persisted records: record manager not available");
+      return;
+    }
+
+    const redis = this.recordManager.getRedis();
+    if (!redis) {
+      serverLogger.warn("Cannot restore records: Redis not available");
+      return;
+    }
+
+    try {
+      serverLogger.info("Restoring persisted records...");
+
+      const patterns = this.recordPatterns.map((p) => (typeof p.pattern === "string" ? p.pattern : p.pattern.source));
+
+      if (patterns.length === 0) {
+        serverLogger.info("No record patterns to restore");
+        return;
+      }
+
+      // for each pattern, get records from storage
+      for (const pattern of patterns) {
+        try {
+          const sqlPattern = convertToSqlPattern(pattern);
+          const records = (await this.defaultAdapter.getRecords?.(sqlPattern)) || [];
+
+          if (records.length > 0) {
+            serverLogger.info(`Restoring ${records.length} records for pattern ${pattern}`);
+
+            // move each record to Redis
+            for (const record of records) {
+              try {
+                const { recordId, value, version } = record;
+                const parsedValue = JSON.parse(value);
+
+                const recordKey = this.recordManager.recordKey(recordId);
+                const versionKey = this.recordManager.recordVersionKey(recordId);
+
+                const pipeline = redis.pipeline();
+                pipeline.set(recordKey, JSON.stringify(parsedValue));
+                pipeline.set(versionKey, version.toString());
+                await pipeline.exec();
+
+                serverLogger.debug(`Restored record ${recordId} (version ${version})`);
+              } catch (parseErr) {
+                serverLogger.error(`Failed to parse record value: ${parseErr}`);
+              }
+            }
+          } else {
+            serverLogger.debug(`No records found for pattern ${pattern}`);
+          }
+        } catch (patternErr) {
+          serverLogger.error(`Error restoring records for pattern ${pattern}: ${patternErr}`);
+        }
+      }
+
+      serverLogger.info("Finished restoring persisted records");
+    } catch (err) {
+      serverLogger.error("Failed to restore persisted records:", err);
     }
   }
 
@@ -55,8 +143,8 @@ export class PersistenceManager extends EventEmitter {
    * @param pattern string or regexp pattern to match channel names
    * @param options persistence options
    */
-  enablePersistenceForChannels(pattern: string | RegExp, options: PersistenceOptions = {}): void {
-    const fullOptions: Required<PersistenceOptions> = {
+  enablePersistenceForChannels(pattern: string | RegExp, options: ChannelPersistenceOptions = {}): void {
+    const fullOptions: Required<ChannelPersistenceOptions> = {
       historyLimit: options.historyLimit ?? 50,
       maxMessageSize: options.maxMessageSize ?? 10240,
       filter: options.filter ?? (() => true),
@@ -72,10 +160,29 @@ export class PersistenceManager extends EventEmitter {
       });
     }
 
-    this.patterns.push({
-      pattern,
-      options: fullOptions,
-    });
+    this.channelPatterns.push({ pattern, options: fullOptions });
+  }
+
+  /**
+   * Enable persistence for records matching the given pattern.
+   * @param pattern string or regexp pattern to match record IDs
+   * @param options persistence options
+   */
+  enableRecordPersistence(pattern: string | RegExp, options: RecordPersistenceOptions = {}): void {
+    const fullOptions: Required<RecordPersistenceOptions> = {
+      adapter: options.adapter ?? this.defaultAdapter,
+      flushInterval: options.flushInterval ?? 500,
+      maxBufferSize: options.maxBufferSize ?? 100,
+    };
+
+    // initialize custom adapter if provided and not shutting down
+    if (fullOptions.adapter !== this.defaultAdapter && !this.isShuttingDown) {
+      fullOptions.adapter.initialize().catch((err) => {
+        serverLogger.error(`Failed to initialize adapter for record pattern ${pattern}:`, err);
+      });
+    }
+
+    this.recordPatterns.push({ pattern, options: fullOptions });
   }
 
   /**
@@ -83,9 +190,23 @@ export class PersistenceManager extends EventEmitter {
    * @param channel channel name to check
    * @returns the persistence options if enabled, undefined otherwise
    */
-  getChannelPersistenceOptions(channel: string): Required<PersistenceOptions> | undefined {
-    for (const { pattern, options } of this.patterns) {
+  getChannelPersistenceOptions(channel: string): Required<ChannelPersistenceOptions> | undefined {
+    for (const { pattern, options } of this.channelPatterns) {
       if ((typeof pattern === "string" && pattern === channel) || (pattern instanceof RegExp && pattern.test(channel))) {
+        return options;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Check if a record has persistence enabled and return its options.
+   * @param recordId record ID to check
+   * @returns the persistence options if enabled, undefined otherwise
+   */
+  getRecordPersistenceOptions(recordId: string): Required<RecordPersistenceOptions> | undefined {
+    for (const { pattern, options } of this.recordPatterns) {
+      if ((typeof pattern === "string" && pattern === recordId) || (pattern instanceof RegExp && pattern.test(recordId))) {
         return options;
       }
     }
@@ -230,6 +351,134 @@ export class PersistenceManager extends EventEmitter {
   }
 
   /**
+   * Handles a record update for potential persistence
+   * @param recordId ID of the record
+   * @param value record value (will be stringified)
+   * @param version record version
+   */
+  handleRecordUpdate(recordId: string, value: any, version: number): void {
+    if (!this.initialized || this.isShuttingDown) return;
+
+    const options = this.getRecordPersistenceOptions(recordId);
+    if (!options) return; // record doesn't match any persistence pattern
+
+    const persistedRecord: PersistedRecord = {
+      recordId,
+      value: JSON.stringify(value),
+      version,
+      timestamp: Date.now(),
+    };
+
+    this.recordBuffer.set(recordId, persistedRecord);
+
+    serverLogger.debug(`Added record ${recordId} to buffer, buffer size: ${this.recordBuffer.size}`);
+
+    if (this.recordBuffer.size >= options.maxBufferSize) {
+      serverLogger.debug(`Buffer size ${this.recordBuffer.size} exceeds limit ${options.maxBufferSize}, flushing records`);
+      this.flushRecords();
+      return;
+    }
+
+    if (!this.recordFlushTimer) {
+      serverLogger.debug(`Scheduling record flush in ${options.flushInterval}ms`);
+      this.recordFlushTimer = setTimeout(() => {
+        this.flushRecords();
+      }, options.flushInterval);
+
+      if (this.recordFlushTimer.unref) {
+        this.recordFlushTimer.unref();
+      }
+    }
+  }
+
+  /**
+   * Flush all buffered records to storage
+   */
+  async flushRecords(): Promise<void> {
+    if (this.recordBuffer.size === 0) return;
+
+    serverLogger.debug(`Flushing ${this.recordBuffer.size} records to storage`);
+
+    if (this.recordFlushTimer) {
+      clearTimeout(this.recordFlushTimer);
+      this.recordFlushTimer = null;
+    }
+
+    const records = Array.from(this.recordBuffer.values());
+    this.recordBuffer.clear();
+
+    const recordsByAdapter = new Map<PersistenceAdapter, PersistedRecord[]>();
+
+    for (const record of records) {
+      const options = this.getRecordPersistenceOptions(record.recordId);
+      if (!options) continue;
+
+      const { adapter } = options;
+      if (!recordsByAdapter.has(adapter)) {
+        recordsByAdapter.set(adapter, []);
+      }
+      recordsByAdapter.get(adapter)!.push(record);
+    }
+
+    // store records on each known adapter
+    for (const [adapter, adapterRecords] of recordsByAdapter.entries()) {
+      try {
+        if (adapter.storeRecords) {
+          serverLogger.debug(`Storing ${adapterRecords.length} records with adapter`);
+          await adapter.storeRecords(adapterRecords);
+          this.emit("recordsFlushed", { count: adapterRecords.length });
+        } else {
+          serverLogger.warn("Adapter does not support storing records");
+        }
+      } catch (err) {
+        serverLogger.error("Failed to flush records:", err);
+
+        if (!this.isShuttingDown) {
+          for (const record of adapterRecords) {
+            this.recordBuffer.set(record.recordId, record);
+          }
+
+          if (!this.recordFlushTimer) {
+            this.recordFlushTimer = setTimeout(() => {
+              this.flushRecords();
+            }, 1000);
+
+            if (this.recordFlushTimer.unref) {
+              this.recordFlushTimer.unref();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Retrieve persisted records matching a pattern
+   * @param pattern pattern to match record IDs
+   * @returns array of persisted records
+   */
+  async getPersistedRecords(pattern: string): Promise<PersistedRecord[]> {
+    if (!this.initialized) {
+      throw new Error("Persistence manager not initialized");
+    }
+
+    // make sure any pending records are written before trying to retrieve
+    await this.flushRecords();
+
+    try {
+      const adapter = this.defaultAdapter;
+
+      if (adapter.getRecords) {
+        return await adapter.getRecords(pattern);
+      }
+    } catch (err) {
+      serverLogger.error(`Failed to get persisted records for pattern ${pattern}:`, err);
+    }
+
+    return [];
+  }
+
+  /**
    * Shutdown the persistence manager, flushing pending messages and closing adapters.
    */
   async shutdown(): Promise<void> {
@@ -244,11 +493,21 @@ export class PersistenceManager extends EventEmitter {
     }
     this.flushTimers.clear();
 
+    if (this.recordFlushTimer) {
+      clearTimeout(this.recordFlushTimer);
+      this.recordFlushTimer = null;
+    }
+
     await this.flushAll();
+    await this.flushRecords();
 
     const adapters = new Set<PersistenceAdapter>([this.defaultAdapter]);
 
-    for (const { options } of this.patterns) {
+    for (const { options } of this.channelPatterns) {
+      adapters.add(options.adapter);
+    }
+
+    for (const { options } of this.recordPatterns) {
       adapters.add(options.adapter);
     }
 
