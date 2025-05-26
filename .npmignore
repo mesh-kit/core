@@ -3,6 +3,7 @@ src
 docker-compose.yml
 bun.lock
 vitest.config.ts
+tsconfig.json
 todo.md
 next.md
 examples
