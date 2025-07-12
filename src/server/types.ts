@@ -4,7 +4,7 @@ import type { Operation } from "fast-json-patch";
 import type { Command } from "../common/message";
 import type { MeshContext } from "./mesh-context";
 import { LogLevel } from "../common/logger";
-import type { PersistenceAdapterOptions } from "./persistence/types";
+import type { PersistenceAdapterOptions, PostgreSQLAdapterOptions } from "./persistence/types";
 
 export type SocketMiddleware = (context: MeshContext<any>) => any | Promise<any>;
 
@@ -82,7 +82,7 @@ export interface MeshServerOptions extends ServerOptions {
    * }
    * ```
    */
-  persistenceOptions?: PersistenceAdapterOptions;
+  persistenceOptions?: PersistenceAdapterOptions | PostgreSQLAdapterOptions;
 
   /**
    * Adapter type for persistence layer.
