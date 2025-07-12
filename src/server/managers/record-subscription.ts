@@ -19,12 +19,7 @@ export class RecordSubscriptionManager {
   > = new Map();
   private emitError: (error: Error) => void;
 
-  constructor(
-    pubClient: Redis,
-    recordManager: RecordManager,
-    emitError: (error: Error) => void,
-    persistenceManager?: PersistenceManager
-  ) {
+  constructor(pubClient: Redis, recordManager: RecordManager, emitError: (error: Error) => void, persistenceManager?: PersistenceManager) {
     this.pubClient = pubClient;
     this.recordManager = recordManager;
     this.emitError = emitError;
@@ -226,6 +221,27 @@ export class RecordSubscriptionManager {
         }
       }
     });
+  }
+
+  /**
+   * Publishes a record deletion event to all subscribed clients.
+   *
+   * @param {string} recordId - The ID of the record that was deleted.
+   * @param {number} version - The final version of the record before deletion.
+   * @returns {Promise<void>}
+   */
+  async publishRecordDeletion(recordId: string, version: number): Promise<void> {
+    const messagePayload = {
+      recordId,
+      deleted: true,
+      version,
+    };
+
+    try {
+      await this.pubClient.publish(RECORD_PUB_SUB_CHANNEL, JSON.stringify(messagePayload));
+    } catch (err) {
+      this.emitError(new Error(`Failed to publish record deletion for "${recordId}": ${err}`));
+    }
   }
 
   /**

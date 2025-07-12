@@ -379,7 +379,11 @@ export class MeshServer extends WebSocketServer {
   }
 
   async deleteRecord(recordId: string): Promise<void> {
-    return this.recordManager.deleteRecord(recordId);
+    const result = await this.recordManager.deleteRecord(recordId);
+
+    if (result) {
+      await this.recordSubscriptionManager.publishRecordDeletion(recordId, result.version);
+    }
   }
 
   /**

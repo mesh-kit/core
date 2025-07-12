@@ -145,11 +145,15 @@ export class RecordManager {
    * Deletes a record and its associated version from Redis storage.
    *
    * @param {string} recordId - The unique identifier of the record to be deleted.
-   * @returns {Promise<void>} A promise that resolves when the record and its version have been deleted.
+   * @returns {Promise<{ version: number }|null>} A promise that resolves to the final version of the deleted record, or null if the record didn't exist.
    * @throws {Error} If an error occurs during the Redis pipeline execution, the promise will be rejected with the error.
    */
-  async deleteRecord(recordId: string): Promise<void> {
-    const record = this.recordRemovedCallbacks.length > 0 ? await this.getRecord(recordId) : null;
+  async deleteRecord(recordId: string): Promise<{ version: number } | null> {
+    const { record, version } = await this.getRecordAndVersion(recordId);
+
+    if (!record) {
+      return null;
+    }
 
     const pipeline = this.redis.pipeline();
     pipeline.del(this.recordKey(recordId));
@@ -169,6 +173,8 @@ export class RecordManager {
         console.error(`Error in record removed callbacks for ${recordId}:`, error);
       });
     }
+
+    return { version };
   }
 
   /**

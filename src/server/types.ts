@@ -18,6 +18,7 @@ export type RecordUpdatePubSubPayload = {
   newValue?: any;
   patch?: Operation[];
   version: number;
+  deleted?: boolean;
 };
 
 // Ensure ServerOptions is not tree-shaken from the declaration file

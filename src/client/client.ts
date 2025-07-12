@@ -88,7 +88,7 @@ export class MeshClient extends EventEmitter {
   private recordSubscriptions: Map<
     string, // recordId
     {
-      callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
       localVersion: number;
       mode: "patch" | "full";
     }
@@ -99,7 +99,7 @@ export class MeshClient extends EventEmitter {
     {
       recordIds: Set<string>;
       version: number;
-      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     }
   > = new Map();
@@ -277,6 +277,8 @@ export class MeshClient extends EventEmitter {
 
       if (data.command === "mesh/record-update") {
         this.handleRecordUpdate(data.payload);
+      } else if (data.command === "mesh/record-deleted") {
+        this.handleRecordDeleted(data.payload);
       } else if (data.command === "mesh/presence-update") {
         this.handlePresenceUpdate(data.payload);
       } else if (data.command === "mesh/subscription-message") {
@@ -603,6 +605,21 @@ export class MeshClient extends EventEmitter {
     }
   }
 
+  private async handleRecordDeleted(payload: { recordId: string; version: number }) {
+    const { recordId, version } = payload;
+
+    const subscription = this.recordSubscriptions.get(recordId);
+    if (subscription && subscription.callback) {
+      try {
+        await subscription.callback({ recordId, deleted: true, version });
+      } catch (error) {
+        clientLogger.error(`Error in record deletion callback for ${recordId}:`, error);
+      }
+    }
+
+    this.recordSubscriptions.delete(recordId);
+  }
+
   /**
    * Handles collection diff messages from the server.
    * Updates the local collection state and triggers callbacks.
@@ -750,13 +767,13 @@ export class MeshClient extends EventEmitter {
    * Subscribes to a specific record and registers a callback for updates.
    *
    * @param {string} recordId - The ID of the record to subscribe to.
-   * @param {(update: { full?: any; patch?: Operation[]; version: number }) => void | Promise<void>} callback - Function called on updates.
+   * @param {(update: { full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>} callback - Function called on updates.
    * @param {{ mode?: "patch" | "full" }} [options] - Subscription mode ('patch' or 'full', default 'full').
    * @returns {Promise<{ success: boolean; record: any | null; version: number }>} Initial state of the record.
    */
   async subscribeRecord(
     recordId: string,
-    callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>,
+    callback?: (update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>,
     options?: { mode?: "patch" | "full" },
   ): Promise<{ success: boolean; record: any | null; version: number }> {
     const mode = options?.mode ?? "full";
@@ -827,7 +844,7 @@ export class MeshClient extends EventEmitter {
   async subscribeCollection(
     collectionId: string,
     options: {
-      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
+      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     } = {},
   ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {

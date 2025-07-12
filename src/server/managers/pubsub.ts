@@ -158,7 +158,7 @@ export class PubSubManager {
   private handleRecordUpdatePubSubMessage(message: string) {
     try {
       const parsedMessage = JSON.parse(message) as RecordUpdatePubSubPayload;
-      const { recordId, newValue, patch, version } = parsedMessage;
+      const { recordId, newValue, patch, version, deleted } = parsedMessage;
 
       if (!recordId || typeof version !== "number") {
         throw new Error("Invalid record update message format");
@@ -173,7 +173,12 @@ export class PubSubManager {
       subscribers.forEach((mode, connectionId) => {
         const connection = this.connectionManager.getLocalConnection(connectionId);
         if (connection && !connection.isDead) {
-          if (mode === "patch" && patch) {
+          if (deleted) {
+            connection.send({
+              command: "mesh/record-deleted",
+              payload: { recordId, version },
+            });
+          } else if (mode === "patch" && patch) {
             connection.send({
               command: "mesh/record-update",
               payload: { recordId, patch, version },
@@ -191,6 +196,10 @@ export class PubSubManager {
           }
         }
       });
+
+      if (deleted) {
+        this.recordSubscriptions.delete(recordId);
+      }
     } catch (err) {
       this.emitError(new Error(`Failed to parse record update message: ${message}`));
     }
