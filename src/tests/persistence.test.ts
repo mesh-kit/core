@@ -4,6 +4,7 @@ import { MeshClient } from "../client/client";
 import { MessageStream } from "../server/persistence/message-stream";
 import { PersistenceManager } from "../server/managers/persistence";
 import { SQLitePersistenceAdapter } from "../server/persistence/sqlite-adapter";
+import { PostgreSQLPersistenceAdapter } from "../server/persistence/postgres-adapter";
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
@@ -12,6 +13,8 @@ import "./websocket-polyfill";
 
 const REDIS_HOST = process.env.REDIS_HOST || "127.0.0.1";
 const REDIS_PORT = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
+const POSTGRES_HOST = process.env.POSTGRES_HOST || "127.0.0.1";
+const POSTGRES_PORT = process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT, 10) : 5432;
 
 const testDir = path.join(__dirname, "../../test-temp");
 if (!fs.existsSync(testDir)) {
@@ -31,6 +34,42 @@ const flushRedis = async () => {
   const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
   await redis.flushdb();
   await redis.quit();
+};
+
+type AdapterType = "sqlite" | "postgres";
+
+const channelAdapterConfigs = {
+  sqlite: {
+    name: "SQLite",
+    getOptions: () => ({ filename: path.join(testDir, `test-db-${uuidv4()}.sqlite`) }),
+    cleanup: (options: any) => {
+      if (fs.existsSync(options.filename)) {
+        fs.unlinkSync(options.filename);
+      }
+    },
+  },
+  postgres: {
+    name: "PostgreSQL",
+    getOptions: () => ({
+      host: POSTGRES_HOST,
+      port: POSTGRES_PORT,
+      database: "mesh_test",
+      user: "mesh",
+      password: "mesh_password",
+    }),
+    cleanup: async (options: any) => {
+      const adapter = new PostgreSQLPersistenceAdapter(options);
+      try {
+        await adapter.initialize();
+        await (adapter as any).pool?.query("DELETE FROM channel_messages");
+        await (adapter as any).pool?.query("DELETE FROM records");
+      } catch (err) {
+        // Ignore cleanup errors
+      } finally {
+        await adapter.close();
+      }
+    },
+  },
 };
 
 describe("Persistence System", () => {
@@ -191,170 +230,210 @@ describe("Persistence System", () => {
     });
   });
 
-  describe("SQLitePersistenceAdapter", () => {
-    let adapter: SQLitePersistenceAdapter;
-    const dbPath = path.join(testDir, `test-db-${uuidv4()}.sqlite`);
+  (["sqlite", "postgres"] as AdapterType[]).forEach((adapterType) => {
+    const config = channelAdapterConfigs[adapterType];
 
-    beforeEach(async () => {
-      adapter = new SQLitePersistenceAdapter({
-        filename: dbPath,
+    describe(`${config.name} Persistence Adapter with Channels`, () => {
+      let adapter: SQLitePersistenceAdapter | PostgreSQLPersistenceAdapter;
+      let adapterOptions: any;
+
+      beforeEach(async () => {
+        adapterOptions = config.getOptions();
+
+        if (adapterType === "sqlite") {
+          adapter = new SQLitePersistenceAdapter(adapterOptions);
+        } else {
+          adapter = new PostgreSQLPersistenceAdapter(adapterOptions);
+        }
+
+        await adapter.initialize();
       });
-      await adapter.initialize();
-    });
 
-    afterEach(async () => {
-      await adapter.close();
-      if (fs.existsSync(dbPath)) {
-        fs.unlinkSync(dbPath);
-      }
-    });
+      afterEach(async () => {
+        await adapter.close();
+        await config.cleanup(adapterOptions);
+      });
 
-    test("stores and retrieves messages", async () => {
-      const testMessages = [
-        {
-          id: uuidv4(),
-          channel: "chat:general",
-          message: JSON.stringify({ text: "Message 1" }),
-          instanceId: "test-instance",
-          timestamp: Date.now(),
-        },
-        {
-          id: uuidv4(),
-          channel: "chat:general",
-          message: JSON.stringify({ text: "Message 2" }),
-          instanceId: "test-instance",
-          timestamp: Date.now() + 1000,
-        },
-      ];
+      test("stores and retrieves messages", async () => {
+        const testMessages = [
+          {
+            id: uuidv4(),
+            channel: "chat:general",
+            message: JSON.stringify({ text: "Message 1" }),
+            instanceId: "test-instance",
+            timestamp: Date.now(),
+          },
+          {
+            id: uuidv4(),
+            channel: "chat:general",
+            message: JSON.stringify({ text: "Message 2" }),
+            instanceId: "test-instance",
+            timestamp: Date.now() + 1000,
+          },
+        ];
 
-      await adapter.storeMessages(testMessages);
+        await adapter.storeMessages(testMessages);
 
-      const retrievedMessages = await adapter.getMessages("chat:general");
+        const retrievedMessages = await adapter.getMessages("chat:general");
 
-      expect(retrievedMessages.length).toBe(2);
-      expect(retrievedMessages[0]?.message).toBe(testMessages[0]?.message);
-      expect(retrievedMessages[1]?.message).toBe(testMessages[1]?.message);
+        expect(retrievedMessages.length).toBe(2);
+        expect(retrievedMessages[0]?.message).toBe(testMessages[0]?.message);
+        expect(retrievedMessages[1]?.message).toBe(testMessages[1]?.message);
 
-      expect(retrievedMessages[0]).not.toHaveProperty("connectionId");
-      expect(retrievedMessages[1]).not.toHaveProperty("connectionId");
-    });
+        expect(retrievedMessages[0]).not.toHaveProperty("connectionId");
+        expect(retrievedMessages[1]).not.toHaveProperty("connectionId");
+      });
 
-    test("retrieves messages after a specific timestamp", async () => {
-      const now = Date.now();
-      const testMessages = [
-        {
-          id: uuidv4(),
-          channel: "chat:general",
-          message: JSON.stringify({ text: "Old message" }),
-          instanceId: "test-instance",
-          timestamp: now - 5000,
-        },
-        {
-          id: uuidv4(),
-          channel: "chat:general",
-          message: JSON.stringify({ text: "New message" }),
-          instanceId: "test-instance",
-          timestamp: now,
-        },
-      ];
+      test("retrieves messages after a specific timestamp", async () => {
+        const now = Date.now();
+        const testMessages = [
+          {
+            id: uuidv4(),
+            channel: "chat:general",
+            message: JSON.stringify({ text: "Old message" }),
+            instanceId: "test-instance",
+            timestamp: now - 5000,
+          },
+          {
+            id: uuidv4(),
+            channel: "chat:general",
+            message: JSON.stringify({ text: "New message" }),
+            instanceId: "test-instance",
+            timestamp: now,
+          },
+        ];
 
-      await adapter.storeMessages(testMessages);
+        await adapter.storeMessages(testMessages);
 
-      const retrievedMessages = await adapter.getMessages("chat:general", now - 2500);
+        const retrievedMessages = await adapter.getMessages("chat:general", now - 2500);
 
-      expect(retrievedMessages.length).toBe(1);
-      expect(JSON.parse(retrievedMessages[0]?.message || "{}").text).toBe("New message");
+        expect(retrievedMessages.length).toBe(1);
+        expect(JSON.parse(retrievedMessages[0]?.message || "{}").text).toBe("New message");
+      });
     });
   });
 
-  describe("Integration Tests", () => {
-    const port = 8130;
-    let server: MeshServer;
-    let client: MeshClient;
+  (["sqlite", "postgres"] as AdapterType[]).forEach((adapterType) => {
+    const config = channelAdapterConfigs[adapterType];
 
-    beforeEach(async () => {
-      await flushRedis();
+    describe(`Integration Tests - ${config.name} Channel Persistence`, () => {
+      const port = adapterType === "sqlite" ? 8130 : 8131;
+      let server: MeshServer;
+      let client: MeshClient;
+      let adapterOptions: any;
 
-      server = createTestServer(port);
-      await server.ready();
+      beforeEach(async () => {
+        await flushRedis();
+        adapterOptions = config.getOptions();
 
-      server.exposeChannel("chat:*");
+        server = createTestServer(port);
+        server.serverOptions.persistenceOptions = adapterOptions;
+        if (adapterType === "postgres") {
+          server.serverOptions.persistenceAdapter = "postgres";
+        }
 
-      server.enablePersistenceForChannels("chat:*", {
-        historyLimit: 50,
-        maxMessageSize: 10240,
-        flushInterval: 100,
+        await server.ready();
+
+        server.exposeChannel("chat:*");
+
+        server.enablePersistenceForChannels(/^chat:.*$/, {
+          historyLimit: 50,
+          maxMessageSize: 10240,
+          flushInterval: 100,
+        });
+
+        client = new MeshClient(`ws://localhost:${port}`);
+        await client.connect();
       });
 
-      client = new MeshClient(`ws://localhost:${port}`);
-      await client.connect();
-    });
+      afterEach(async () => {
+        await client.close();
+        await server.close();
+        await config.cleanup(adapterOptions);
+      });
 
-    afterEach(async () => {
-      await client.close();
-      await server.close();
-    });
+      test("publishes messages to channels", async () => {
+        const message = JSON.stringify({ text: "Test message" });
+        await server.publishToChannel("chat:general", message, 10);
 
-    test("publishes messages to channels", async () => {
-      const message = JSON.stringify({ text: "Test message" });
-      await server.publishToChannel("chat:general", message, 10);
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+        const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
+        const history = await redis.lrange("mesh:history:chat:general", 0, -1);
+        await redis.quit();
 
-      const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
-      const history = await redis.lrange("mesh:history:chat:general", 0, -1);
-      await redis.quit();
+        expect(history.length).toBeGreaterThan(0);
+        expect(history[0]).toBe(message);
+      });
 
-      expect(history.length).toBeGreaterThan(0);
-      expect(history[0]).toBe(message);
-    });
+      test("stores messages in Redis history", async () => {
+        const message1 = JSON.stringify({ text: "Message 1" });
+        const message2 = JSON.stringify({ text: "Message 2" });
+        const message3 = JSON.stringify({ text: "Message 3" });
 
-    test("stores messages in Redis history", async () => {
-      const message1 = JSON.stringify({ text: "Message 1" });
-      const message2 = JSON.stringify({ text: "Message 2" });
-      const message3 = JSON.stringify({ text: "Message 3" });
+        await server.publishToChannel("chat:general", message1, 10);
+        await server.publishToChannel("chat:general", message2, 10);
+        await server.publishToChannel("chat:general", message3, 10);
 
-      await server.publishToChannel("chat:general", message1, 10);
-      await server.publishToChannel("chat:general", message2, 10);
-      await server.publishToChannel("chat:general", message3, 10);
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+        const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
+        const history = await redis.lrange("mesh:history:chat:general", 0, -1);
+        await redis.quit();
 
-      const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
-      const history = await redis.lrange("mesh:history:chat:general", 0, -1);
-      await redis.quit();
+        expect(history.length).toBe(3);
+        expect(history).toContain(message1);
+        expect(history).toContain(message2);
+        expect(history).toContain(message3);
+      });
 
-      expect(history.length).toBe(3);
-      expect(history).toContain(message1);
-      expect(history).toContain(message2);
-      expect(history).toContain(message3);
-    });
+      test("retrieves channel history when subscribing", async () => {
+        server.exposeChannel("chat:history");
 
-    test("retrieves channel history when subscribing", async () => {
-      server.exposeChannel("chat:history");
+        const message1 = JSON.stringify({ text: "History Message 1" });
+        const message2 = JSON.stringify({ text: "History Message 2" });
+        const message3 = JSON.stringify({ text: "History Message 3" });
 
-      const message1 = JSON.stringify({ text: "History Message 1" });
-      const message2 = JSON.stringify({ text: "History Message 2" });
-      const message3 = JSON.stringify({ text: "History Message 3" });
+        const historyLimit = 10;
 
-      const historyLimit = 10;
+        await server.publishToChannel("chat:history", message1, historyLimit);
+        await server.publishToChannel("chat:history", message2, historyLimit);
+        await server.publishToChannel("chat:history", message3, historyLimit);
 
-      await server.publishToChannel("chat:history", message1, historyLimit);
-      await server.publishToChannel("chat:history", message2, historyLimit);
-      await server.publishToChannel("chat:history", message3, historyLimit);
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+        const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
+        const storedHistory = await redis.lrange("mesh:history:chat:history", 0, -1);
+        await redis.quit();
 
-      const redis = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
-      const storedHistory = await redis.lrange("mesh:history:chat:history", 0, -1);
-      await redis.quit();
+        expect(storedHistory.length).toBe(3);
 
-      expect(storedHistory.length).toBe(3);
+        const { success, history } = await client.subscribeChannel("chat:history", () => {}, { historyLimit });
 
-      const { success, history } = await client.subscribeChannel("chat:history", () => {}, { historyLimit });
+        expect(success).toBe(true);
+        expect(history.length).toBe(3);
+      });
 
-      expect(success).toBe(true);
-      expect(history.length).toBe(3);
+      test("persists messages to database and retrieves them", async () => {
+        const testChannel = "chat:persistence";
+        server.exposeChannel(testChannel);
+
+        const message1 = JSON.stringify({ text: "Persistent Message 1" });
+        const message2 = JSON.stringify({ text: "Persistent Message 2" });
+
+        await server.publishToChannel(testChannel, message1, 10);
+        await server.publishToChannel(testChannel, message2, 10);
+
+        // wait for messages to be flushed to database
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        const { persistenceManager } = server as any;
+        const persistedMessages = await persistenceManager.getMessages(testChannel);
+
+        expect(persistedMessages.length).toBe(2);
+        expect(persistedMessages[0]?.message).toBe(message1);
+        expect(persistedMessages[1]?.message).toBe(message2);
+      });
     });
   });
 });
