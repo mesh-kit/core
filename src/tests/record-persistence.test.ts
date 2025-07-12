@@ -97,14 +97,14 @@ describe("Record Persistence System", () => {
       const { persistenceManager } = server as any;
       const initialLength = persistenceManager.recordPatterns.length;
 
-      server.enableRecordPersistence("profile:user:*");
+      server.enableRecordPersistence(/^profile:user:.*/);
 
       expect(persistenceManager.recordPatterns.length).toBe(initialLength + 1);
       expect(persistenceManager.recordPatterns.at(-1).pattern).toBe("profile:user:*");
     });
 
     test("handles record updates and adds them to the buffer", async () => {
-      server.enableRecordPersistence("profile:user:*");
+      server.enableRecordPersistence(/^profile:user:.*/);
 
       const { persistenceManager } = server as any;
       const handleRecordUpdateSpy = vi.spyOn(persistenceManager, "handleRecordUpdate");
