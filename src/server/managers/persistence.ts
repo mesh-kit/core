@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
 import type { PersistenceAdapter, PersistedMessage, ChannelPersistenceOptions, RecordPersistenceOptions, PersistedRecord } from "../persistence/types";
 import { SQLitePersistenceAdapter } from "../persistence/sqlite-adapter";
+import { PostgreSQLPersistenceAdapter } from "../persistence/postgres-adapter";
 import { serverLogger } from "../../common/logger";
 import { MessageStream } from "../persistence/message-stream";
 import { RecordManager } from "./record";
@@ -31,9 +32,15 @@ export class PersistenceManager extends EventEmitter {
 
   private messageStream: MessageStream;
 
-  constructor(defaultAdapterOptions: any = {}) {
+  constructor(defaultAdapterOptions: any = {}, adapterType: "sqlite" | "postgres" = "sqlite") {
     super();
-    this.defaultAdapter = new SQLitePersistenceAdapter(defaultAdapterOptions);
+
+    if (adapterType === "postgres") {
+      this.defaultAdapter = new PostgreSQLPersistenceAdapter(defaultAdapterOptions);
+    } else {
+      this.defaultAdapter = new SQLitePersistenceAdapter(defaultAdapterOptions);
+    }
+
     this.messageStream = MessageStream.getInstance();
   }
 

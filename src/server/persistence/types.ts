@@ -90,3 +90,14 @@ export interface PersistenceAdapterOptions {
    */
   filename?: string;
 }
+
+export interface PostgreSQLAdapterOptions extends PersistenceAdapterOptions {
+  connectionString?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  ssl?: boolean;
+  max?: number;
+}

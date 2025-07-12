@@ -84,7 +84,7 @@ export class MeshServer extends WebSocketServer {
     }
     this.commandManager = new CommandManager((err) => this.emit("error", err));
 
-    this.persistenceManager = new PersistenceManager(this.serverOptions.persistenceOptions);
+    this.persistenceManager = new PersistenceManager(this.serverOptions.persistenceOptions, this.serverOptions.persistenceAdapter);
     this.persistenceManager.initialize().catch((err) => {
       this.emit("error", new Error(`Failed to initialize persistence manager: ${err}`));
     });

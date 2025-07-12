@@ -13,3 +13,17 @@ services:
       - "8081:8081"
     depends_on:
       - redis
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=mesh_test
+      - POSTGRES_USER=mesh
+      - POSTGRES_PASSWORD=mesh_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

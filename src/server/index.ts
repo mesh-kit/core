@@ -6,3 +6,6 @@ export { RecordManager } from "./managers/record";
 export { ConnectionManager } from "./managers/connection";
 export { PresenceManager } from "./managers/presence";
 export { Connection } from "./connection";
+export { SQLitePersistenceAdapter } from "./persistence/sqlite-adapter";
+export { PostgreSQLPersistenceAdapter } from "./persistence/postgres-adapter";
+export type { PersistenceAdapter, PersistenceAdapterOptions, PostgreSQLAdapterOptions } from "./persistence/types";

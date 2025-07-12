@@ -20,7 +20,7 @@ export type RecordUpdatePubSubPayload = {
   version: number;
 };
 
-export type MeshServerOptions = ServerOptions & {
+export interface MeshServerOptions extends ServerOptions {
   /**
    * The interval at which to send ping messages to the client.
    *
@@ -79,6 +79,12 @@ export type MeshServerOptions = ServerOptions & {
    * ```
    */
   persistenceOptions?: PersistenceAdapterOptions;
-};
+
+  /**
+   * Adapter type for persistence layer.
+   * @default "sqlite"
+   */
+  persistenceAdapter?: "sqlite" | "postgres";
+}
 
 export type ChannelPattern = string | RegExp;
