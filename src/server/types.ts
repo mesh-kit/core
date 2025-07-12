@@ -20,6 +20,9 @@ export type RecordUpdatePubSubPayload = {
   version: number;
 };
 
+// Ensure ServerOptions is not tree-shaken from the declaration file
+export type { ServerOptions } from "ws";
+
 export interface MeshServerOptions extends ServerOptions {
   /**
    * The interval at which to send ping messages to the client.

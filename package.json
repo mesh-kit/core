@@ -4,7 +4,7 @@
   "type": "module",
   "exports": {
     "./server": {
-      "types": "./dist/server/_tsup-dts-rollup.d.ts",
+      "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js",
       "require": "./dist/server/index.cjs"
     },
@@ -23,7 +23,7 @@
     "build": "bun run build:prep && bun run build:server && bun run build:client && bun run build:client-utils",
     "build:client": "tsup src/client/index.ts --format cjs,esm --dts --clean --minify --out-dir dist/client",
     "build:prep": "rm -rf dist && mkdir dist && mkdir dist/server && mkdir dist/client && mkdir dist/client-utils",
-    "build:server": "tsup src/server/index.ts --format cjs,esm --experimental-dts --clean --minify --out-dir dist/server",
+    "build:server": "tsup src/server/index.ts --format cjs,esm --dts --clean --minify --out-dir dist/server",
     "build:client-utils": "tsup src/client-utils/index.ts --format cjs,esm --dts --clean --minify --out-dir dist/client-utils",
     "test": "vitest"
   },
@@ -38,7 +38,6 @@
     "ws": "^8.18.1"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.52.8",
     "@types/bun": "latest",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
