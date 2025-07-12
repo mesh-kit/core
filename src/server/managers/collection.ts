@@ -10,7 +10,7 @@ export class CollectionManager {
   }> = [];
   private collectionSubscriptions: Map<
     string, // collectionId
-    Map<string, { version: number; mode: "patch" | "full" }> // connectionId -> { version, mode }
+    Map<string, { version: number }> // connectionId -> { version }
   > = new Map();
   private emitError: (error: Error) => void;
 
@@ -79,12 +79,7 @@ export class CollectionManager {
    * @param {Connection} connection - The connection object.
    * @returns {Promise<{ recordIds: string[]; version: number }>} The initial state of the collection.
    */
-  async addSubscription(
-    collectionId: string,
-    connectionId: string,
-    connection: Connection,
-    mode: "patch" | "full" = "full",
-  ): Promise<{ recordIds: string[]; version: number }> {
+  async addSubscription(collectionId: string, connectionId: string, connection: Connection): Promise<{ recordIds: string[]; version: number }> {
     if (!this.collectionSubscriptions.has(collectionId)) {
       this.collectionSubscriptions.set(collectionId, new Map());
     }
@@ -92,7 +87,7 @@ export class CollectionManager {
     const recordIds = await this.resolveCollection(collectionId, connection);
     const version = 1;
 
-    this.collectionSubscriptions.get(collectionId)!.set(connectionId, { version, mode });
+    this.collectionSubscriptions.get(collectionId)!.set(connectionId, { version });
 
     await this.redis.set(`mesh:collection:${collectionId}:${connectionId}`, JSON.stringify(recordIds));
 
@@ -129,19 +124,19 @@ export class CollectionManager {
    * @param {string} collectionId - The collection ID to refresh.
    * @param {string} connectionId - The connection ID to refresh for.
    * @param {Connection} connection - The connection object.
-   * @returns {Promise<{ added: string[]; removed: string[]; version: number; mode: "patch" | "full" }>}
+   * @returns {Promise<{ added: string[]; removed: string[]; version: number }>}
    */
   async refreshCollection(
     collectionId: string,
     connectionId: string,
     connection: Connection,
-  ): Promise<{ added: string[]; removed: string[]; version: number; mode: "patch" | "full" }> {
+  ): Promise<{ added: string[]; removed: string[]; version: number }> {
     const collectionSubs = this.collectionSubscriptions.get(collectionId);
     if (!collectionSubs || !collectionSubs.has(connectionId)) {
       throw new Error(`Connection ${connectionId} is not subscribed to collection ${collectionId}`);
     }
 
-    const { version, mode } = collectionSubs.get(connectionId)!;
+    const { version } = collectionSubs.get(connectionId)!;
     const newRecordIds = await this.resolveCollection(collectionId, connection);
 
     // get the previous record IDs for this connection
@@ -157,7 +152,7 @@ export class CollectionManager {
     let newVersion = version;
     if (added.length > 0 || removed.length > 0) {
       newVersion = version + 1;
-      collectionSubs.set(connectionId, { version: newVersion, mode });
+      collectionSubs.set(connectionId, { version: newVersion });
 
       // store the new record IDs
       await this.redis.set(previousRecordIdsKey, JSON.stringify(newRecordIds));
@@ -167,7 +162,6 @@ export class CollectionManager {
       added,
       removed,
       version: newVersion,
-      mode,
     };
   }
 
@@ -240,9 +234,9 @@ export class CollectionManager {
   /**
    * Gets all collection subscriptions.
    *
-   * @returns {Map<string, Map<string, { version: number; mode: "patch" | "full" }>>} The collection subscriptions.
+   * @returns {Map<string, Map<string, { version: number }>>} The collection subscriptions.
    */
-  getCollectionSubscriptions(): Map<string, Map<string, { version: number; mode: "patch" | "full" }>> {
+  getCollectionSubscriptions(): Map<string, Map<string, { version: number }>> {
     return this.collectionSubscriptions;
   }
 
@@ -257,7 +251,7 @@ export class CollectionManager {
     const collectionSubs = this.collectionSubscriptions.get(collectionId);
     if (collectionSubs?.has(connectionId)) {
       const subscription = collectionSubs.get(connectionId)!;
-      collectionSubs.set(connectionId, { ...subscription, version });
+      collectionSubs.set(connectionId, { version });
     }
   }
 }

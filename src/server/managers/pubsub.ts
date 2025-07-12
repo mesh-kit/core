@@ -230,7 +230,7 @@ export class PubSubManager {
         if (subscribers.size === 0) continue;
 
         // for each subscriber of this collection
-        for (const [connectionId, { version: currentCollVersion, mode }] of subscribers.entries()) {
+        for (const [connectionId, { version: currentCollVersion }] of subscribers.entries()) {
           try {
             const connection = this.connectionManager.getLocalConnection(connectionId);
             if (!connection || connection.isDead) {
@@ -257,7 +257,7 @@ export class PubSubManager {
             if (changeAffectsMembership || deletionAffectsExistingMember) {
               collectionVersionUpdated = true;
               newCollectionVersion = currentCollVersion + 1;
-              subscribers.set(connectionId, { version: newCollectionVersion, mode });
+              subscribers.set(connectionId, { version: newCollectionVersion });
               await this.pubClient.set(previousRecordIdsKey, JSON.stringify(newRecordIds));
 
               connection.send({
@@ -270,7 +270,7 @@ export class PubSubManager {
             if (recordExists && updatePayloadBase && newRecordIds.includes(changedRecordId)) {
               connection.send({
                 command: "mesh/record-update",
-                // send 'full' regardless of mode for simplicity, as patch isn't readily available here.
+                // always send full record data for collections
                 payload: { ...updatePayloadBase },
               });
             }

@@ -99,7 +99,6 @@ export class MeshClient extends EventEmitter {
     {
       recordIds: Set<string>;
       version: number;
-      mode: "patch" | "full";
       onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     }
@@ -634,7 +633,6 @@ export class MeshClient extends EventEmitter {
       // unsubscribe and resubscribe to force a full update
       await this.unsubscribeCollection(collectionId);
       await this.subscribeCollection(collectionId, {
-        mode: subscription.mode,
         onUpdate: subscription.onUpdate,
         onDiff: subscription.onDiff,
       });
@@ -822,7 +820,6 @@ export class MeshClient extends EventEmitter {
    *
    * @param {string} collectionId - The ID of the collection to subscribe to.
    * @param {Object} options - Subscription options.
-   * @param {("patch"|"full")} [options.mode="full"] - The subscription mode for records.
    * @param {Function} [options.onUpdate] - Callback for record updates.
    * @param {Function} [options.onDiff] - Callback for collection membership changes.
    * @returns {Promise<{success: boolean; recordIds: string[]; records: Array<{id: string; record: any}>; version: number}>} Initial state of the collection including records data structured as {id, record}.
@@ -830,24 +827,19 @@ export class MeshClient extends EventEmitter {
   async subscribeCollection(
     collectionId: string,
     options: {
-      mode?: "patch" | "full";
       onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     } = {},
   ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {
-    const mode = options.mode ?? "full";
-
     try {
       const result = await this.command("mesh/subscribe-collection", {
         collectionId,
-        mode,
       });
 
       if (result.success) {
         this.collectionSubscriptions.set(collectionId, {
           recordIds: new Set(result.recordIds),
           version: result.version,
-          mode,
           onUpdate: options.onUpdate,
           onDiff: options.onDiff,
         });
@@ -1325,7 +1317,6 @@ export class MeshClient extends EventEmitter {
         try {
           clientLogger.info(`Resubscribing to collection: ${collectionId}`);
           await this.subscribeCollection(collectionId, {
-            mode: subscription.mode,
             onUpdate: subscription.onUpdate,
             onDiff: subscription.onDiff,
           });

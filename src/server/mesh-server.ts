@@ -830,10 +830,10 @@ export class MeshServer extends WebSocketServer {
       }
     });
 
-    this.exposeCommand<{ collectionId: string; mode?: "patch" | "full" }, { success: boolean; recordIds: string[]; records: any[]; version: number }>(
+    this.exposeCommand<{ collectionId: string }, { success: boolean; recordIds: string[]; records: any[]; version: number }>(
       "mesh/subscribe-collection",
       async (ctx) => {
-        const { collectionId, mode = "full" } = ctx.payload;
+        const { collectionId } = ctx.payload;
         const connectionId = ctx.connection.id;
 
         if (!(await this.collectionManager.isCollectionExposed(collectionId, ctx.connection))) {
@@ -841,7 +841,7 @@ export class MeshServer extends WebSocketServer {
         }
 
         try {
-          const { recordIds, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection, mode);
+          const { recordIds, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection);
 
           const recordsWithId = await Promise.all(
             recordIds.map(async (id) => {
