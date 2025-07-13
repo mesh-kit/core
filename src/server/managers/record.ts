@@ -99,19 +99,47 @@ export class RecordManager {
    * If there are no changes between the old and new value, returns null.
    *
    * @param {string} recordId - The unique identifier of the record to update.
-   * @param {any} newValue - The new value to set for the record.
-   * @returns {Promise<{ patch: Operation[]; version: number } | null>}
-   *          A promise resolving to an object containing the JSON Patch operations and new version number,
+   * @param {any} newValue - The new value to set for the record, or partial value when using merge strategy.
+   * @param {"replace" | "merge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
+   * @returns {Promise<{ patch: Operation[]; version: number; finalValue: any } | null>}
+   *          A promise resolving to an object containing the JSON Patch operations, new version number, and final merged value,
    *          or null if there were no changes to publish.
    * @throws {Error} If there is a failure reading or writing to Redis, or during patch computation, the promise will be rejected with the error.
    */
-  async publishUpdate(recordId: string, newValue: any): Promise<{ patch: Operation[]; version: number } | null> {
+  async publishUpdate(
+    recordId: string,
+    newValue: any,
+    strategy: "replace" | "merge" = "replace",
+  ): Promise<{ patch: Operation[]; version: number; finalValue: any } | null> {
     const recordKey = this.recordKey(recordId);
     const versionKey = this.recordVersionKey(recordId);
 
     const { record: oldValue, version: oldVersion } = await this.getRecordAndVersion(recordId);
 
-    const patch = jsonpatch.compare(oldValue ?? {}, newValue ?? {});
+    let finalValue: any;
+
+    if (strategy === "merge") {
+      // For merge strategy, we need to merge the new values with the existing record
+      // Only works if both old and new values are objects
+      if (
+        typeof oldValue === "object" &&
+        oldValue !== null &&
+        typeof newValue === "object" &&
+        newValue !== null &&
+        !Array.isArray(oldValue) &&
+        !Array.isArray(newValue)
+      ) {
+        finalValue = { ...oldValue, ...newValue };
+      } else {
+        // If not objects, fall back to replace behavior
+        finalValue = newValue;
+      }
+    } else {
+      // Replace strategy - use the new value as is
+      finalValue = newValue;
+    }
+
+    const patch = jsonpatch.compare(oldValue ?? {}, finalValue ?? {});
 
     if (patch.length === 0) {
       return null;
@@ -120,7 +148,7 @@ export class RecordManager {
     const newVersion = oldVersion + 1;
 
     const pipeline = this.redis.pipeline();
-    pipeline.set(recordKey, JSON.stringify(newValue));
+    pipeline.set(recordKey, JSON.stringify(finalValue));
     pipeline.set(versionKey, newVersion.toString());
     await pipeline.exec();
 
@@ -128,7 +156,7 @@ export class RecordManager {
       Promise.all(
         this.recordUpdateCallbacks.map(async (callback) => {
           try {
-            await callback({ recordId, value: newValue });
+            await callback({ recordId, value: finalValue });
           } catch (error) {
             console.error(`Error in record update callback for ${recordId}:`, error);
           }
@@ -138,7 +166,7 @@ export class RecordManager {
       });
     }
 
-    return { patch, version: newVersion };
+    return { patch, version: newVersion, finalValue };
   }
 
   /**

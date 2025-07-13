@@ -99,7 +99,7 @@ export class MeshClient extends EventEmitter {
     {
       recordIds: Set<string>;
       version: number;
-      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
+      onUpdate?: (recordId: string, update: { id: string; record?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     }
   > = new Map();
@@ -563,7 +563,15 @@ export class MeshClient extends EventEmitter {
     for (const [collectionId, collectionSub] of this.collectionSubscriptions.entries()) {
       if (collectionSub.recordIds.has(recordId) && collectionSub.onUpdate) {
         try {
-          await collectionSub.onUpdate(recordId, payload);
+          // Transform the payload to match the {id, record} shape for consistency with initial collection data
+          const transformedPayload = {
+            id: recordId,
+            record: full,
+            patch,
+            version,
+            deleted: false,
+          };
+          await collectionSub.onUpdate(recordId, transformedPayload);
         } catch (error) {
           clientLogger.error(`Error in collection record update callback for ${collectionId}:`, error);
         }
@@ -844,7 +852,7 @@ export class MeshClient extends EventEmitter {
   async subscribeCollection(
     collectionId: string,
     options: {
-      onUpdate?: (recordId: string, update: { recordId: string; full?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
+      onUpdate?: (recordId: string, update: { id: string; record?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     } = {},
   ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {
@@ -968,14 +976,26 @@ export class MeshClient extends EventEmitter {
    * Publishes an update to a specific record if the client has write permissions.
    *
    * @param {string} recordId - The ID of the record to update.
-   * @param {any} newValue - The new value for the record.
+   * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
+   * @param {Object} [options] - Optional update options.
+   * @param {"replace" | "merge"} [options.strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
    * @returns {Promise<boolean>} True if the update was successfully published, false otherwise.
+   *
+   * @example
+   * // Replace strategy (default) - replaces entire record
+   * await client.publishRecordUpdate("user:123", { name: "John", age: 30 });
+   *
+   * // Merge strategy - merges with existing record
+   * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
+   * await client.publishRecordUpdate("user:123", { name: "new name" }, { strategy: "merge" });
+   * // Result: { name: "new name", age: 30, city: "NYC" }
    */
-  async publishRecordUpdate(recordId: string, newValue: any): Promise<boolean> {
+  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" }): Promise<boolean> {
     try {
       const result = await this.command("mesh/publish-record-update", {
         recordId,
         newValue,
+        strategy: options?.strategy || "replace",
       });
       return result.success === true;
     } catch (error) {

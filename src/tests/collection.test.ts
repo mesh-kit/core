@@ -168,7 +168,7 @@ describe("Collection Subscriptions", () => {
     await server.publishRecordUpdate(initialRecord1.id, updatedRecord1);
     await wait(100);
     expect(mockOnUpdate).toHaveBeenCalledTimes(1);
-    expect(mockOnUpdate).toHaveBeenCalledWith(initialRecord1.id, expect.objectContaining({ full: updatedRecord1 }));
+    expect(mockOnUpdate).toHaveBeenCalledWith(initialRecord1.id, expect.objectContaining({ id: initialRecord1.id, record: updatedRecord1 }));
 
     await client.unsubscribeCollection("collection:initial-tasks");
   });

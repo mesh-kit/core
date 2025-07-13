@@ -174,27 +174,28 @@ export class RecordSubscriptionManager {
    * and publishes the update via Redis pub/sub.
    *
    * @param {string} recordId - The ID of the record to update.
-   * @param {any} newValue - The new value for the record.
+   * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
+   * @param {"replace" | "merge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
    * @returns {Promise<void>}
    * @throws {Error} If the update fails.
    */
-  async publishRecordUpdate(recordId: string, newValue: any): Promise<void> {
-    const updateResult = await this.recordManager.publishUpdate(recordId, newValue);
+  async publishRecordUpdate(recordId: string, newValue: any, strategy: "replace" | "merge" = "replace"): Promise<void> {
+    const updateResult = await this.recordManager.publishUpdate(recordId, newValue, strategy);
 
     if (!updateResult) {
       return;
     }
 
-    const { patch, version } = updateResult;
+    const { patch, version, finalValue } = updateResult;
 
     // Use the directly injected persistence manager if available
     if (this.persistenceManager) {
-      this.persistenceManager.handleRecordUpdate(recordId, newValue, version);
+      this.persistenceManager.handleRecordUpdate(recordId, finalValue, version);
     }
 
     const messagePayload = {
       recordId,
-      newValue,
+      newValue: finalValue,
       patch,
       version,
     };
