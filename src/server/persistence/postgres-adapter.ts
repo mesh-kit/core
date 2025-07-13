@@ -163,7 +163,7 @@ export class PostgreSQLPersistenceAdapter implements PersistenceAdapter {
            VALUES ($1, $2, $3, $4)
            ON CONFLICT (record_id) 
            DO UPDATE SET version = $2, value = $3, timestamp = $4`,
-          [record.recordId, record.version, JSON.parse(record.value), record.timestamp],
+          [record.recordId, record.version, record.value, record.timestamp],
         );
       }
 
@@ -196,7 +196,7 @@ export class PostgreSQLPersistenceAdapter implements PersistenceAdapter {
     return result.rows.map((row) => ({
       recordId: row.record_id,
       version: row.version,
-      value: JSON.stringify(row.value),
+      value: row.value,
       timestamp: parseInt(row.timestamp),
     }));
   }
@@ -209,4 +209,3 @@ export class PostgreSQLPersistenceAdapter implements PersistenceAdapter {
     this.initialized = false;
   }
 }
-
