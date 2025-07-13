@@ -5,7 +5,6 @@ import type { PubSubMessagePayload, RecordUpdatePubSubPayload } from "../types";
 import { PUB_SUB_CHANNEL_PREFIX, RECORD_PUB_SUB_CHANNEL } from "../utils/constants";
 import type { CollectionManager } from "./collection";
 import type { RecordManager } from "./record";
-import type { Operation } from "fast-json-patch";
 import { serverLogger } from "../../common/logger";
 
 export class PubSubManager {
@@ -22,6 +21,12 @@ export class PubSubManager {
   private emitError: (error: Error) => void;
   private _subscriptionPromise!: Promise<void>;
   private collectionManager: CollectionManager | null = null;
+
+  private collectionUpdateTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private collectionMaxDelayTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private pendingCollectionUpdates: Map<string, Set<string>> = new Map();
+  private readonly COLLECTION_UPDATE_DEBOUNCE_MS = 50;
+  private readonly COLLECTION_MAX_DELAY_MS = 200;
 
   constructor(
     subClient: Redis,
@@ -206,8 +211,8 @@ export class PubSubManager {
   }
 
   /**
-   * Handles a record change notification for collections.
-   * Calculates diffs and sends record updates to relevant collection subscribers.
+   * Handles a record change notification for collections with debouncing.
+   * Batches rapid updates to avoid race conditions and improve performance.
    *
    * @param {string} changedRecordId - The message, which is the ID of the record that has changed.
    * @returns {Promise<void>}
@@ -215,83 +220,126 @@ export class PubSubManager {
   private async handleCollectionRecordChange(changedRecordId: string): Promise<void> {
     if (!this.collectionManager) return;
 
-    let updatePayloadBase: { recordId: string; version: number; full?: any; patch?: Operation[] } | null = null;
-    let recordExists = true;
+    const collectionSubsMap = this.collectionManager.getCollectionSubscriptions();
+    const affectedCollections = new Set<string>();
 
-    try {
-      try {
-        const { record: fullValue, version } = await this.recordManager.getRecordAndVersion(changedRecordId);
-        updatePayloadBase = { recordId: changedRecordId, version, full: fullValue };
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("Record not found")) {
-          // record likely deleted
-          recordExists = false;
-          serverLogger.info(`Record ${changedRecordId} not found during collection change handling (likely deleted).`);
-        } else {
-          this.emitError(new Error(`Error fetching record ${changedRecordId} for collection update: ${error}`));
-          return;
-        }
+    // optimization: could check patterns/resolver hints in the future
+    for (const [collectionId] of collectionSubsMap.entries()) {
+      affectedCollections.add(collectionId);
+    }
+
+    for (const collectionId of affectedCollections) {
+      const existingTimeout = this.collectionUpdateTimeouts.get(collectionId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
       }
 
-      // iterate through all collection subscriptions
-      const collectionSubsMap = this.collectionManager.getCollectionSubscriptions();
-      for (const [collectionId, subscribers] of collectionSubsMap.entries()) {
-        if (subscribers.size === 0) continue;
+      if (!this.pendingCollectionUpdates.has(collectionId)) {
+        this.pendingCollectionUpdates.set(collectionId, new Set());
+      }
+      this.pendingCollectionUpdates.get(collectionId)!.add(changedRecordId);
 
-        // for each subscriber of this collection
-        for (const [connectionId, { version: currentCollVersion }] of subscribers.entries()) {
-          try {
-            const connection = this.connectionManager.getLocalConnection(connectionId);
-            if (!connection || connection.isDead) {
-              // should not be possible, because CollectionManager removes subscribers on client disconnect
-              continue;
-            }
+      const debounceTimeout = setTimeout(async () => {
+        await this.processCollectionUpdates(collectionId);
+      }, this.COLLECTION_UPDATE_DEBOUNCE_MS);
+      this.collectionUpdateTimeouts.set(collectionId, debounceTimeout);
 
-            const newRecordIds = await this.collectionManager.resolveCollection(collectionId, connection);
-            const previousRecordIdsKey = `mesh:collection:${collectionId}:${connectionId}`;
-            const previousRecordIdsStr = await this.pubClient.get(previousRecordIdsKey);
-            const previousRecordIds = previousRecordIdsStr ? JSON.parse(previousRecordIdsStr) : [];
+      if (!this.collectionMaxDelayTimeouts.has(collectionId)) {
+        const maxDelayTimeout = setTimeout(async () => {
+          await this.processCollectionUpdates(collectionId);
+        }, this.COLLECTION_MAX_DELAY_MS);
+        this.collectionMaxDelayTimeouts.set(collectionId, maxDelayTimeout);
+      }
+    }
+  }
 
-            const added = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
-            const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id));
+  /**
+   * Processes batched collection updates for a specific collection.
+   * Handles all pending record changes and sends appropriate updates to subscribers.
+   *
+   * @param {string} collectionId - The collection ID to process updates for.
+   * @returns {Promise<void>}
+   */
+  private async processCollectionUpdates(collectionId: string): Promise<void> {
+    const changedRecordIds = this.pendingCollectionUpdates.get(collectionId);
+    if (!changedRecordIds || changedRecordIds.size === 0) return;
 
-            let collectionVersionUpdated = false;
-            let newCollectionVersion = currentCollVersion;
+    const debounceTimeout = this.collectionUpdateTimeouts.get(collectionId);
+    const maxDelayTimeout = this.collectionMaxDelayTimeouts.get(collectionId);
 
-            // a diff occurs if membership changes OR if a member is deleted
-            const changeAffectsMembership = added.length > 0 || removed.length > 0;
-            // a deletion only triggers a diff if the deleted record *was* part of the previous set
-            const deletionAffectsExistingMember = !recordExists && previousRecordIds.includes(changedRecordId);
+    if (debounceTimeout) {
+      clearTimeout(debounceTimeout);
+      this.collectionUpdateTimeouts.delete(collectionId);
+    }
 
-            if (changeAffectsMembership || deletionAffectsExistingMember) {
-              collectionVersionUpdated = true;
-              newCollectionVersion = currentCollVersion + 1;
-              subscribers.set(connectionId, { version: newCollectionVersion });
-              await this.pubClient.set(previousRecordIdsKey, JSON.stringify(newRecordIds));
+    if (maxDelayTimeout) {
+      clearTimeout(maxDelayTimeout);
+      this.collectionMaxDelayTimeouts.delete(collectionId);
+    }
 
-              connection.send({
-                command: "mesh/collection-diff",
-                payload: { collectionId, added, removed, version: newCollectionVersion },
-              });
-            }
+    this.pendingCollectionUpdates.delete(collectionId);
 
-            // send update if the record *still* exists and is currently part of this connection's view of the collection
-            if (recordExists && updatePayloadBase && newRecordIds.includes(changedRecordId)) {
-              connection.send({
-                command: "mesh/record-update",
-                // always send full record data for collections
-                payload: { ...updatePayloadBase },
-              });
-            }
-          } catch (connError) {
-            this.emitError(
-              new Error(`Error processing collection ${collectionId} for connection ${connectionId} (record change ${changedRecordId}): ${connError}`),
-            );
+    if (!this.collectionManager) return;
+
+    const subscribers = this.collectionManager.getCollectionSubscriptions().get(collectionId);
+    if (!subscribers || subscribers.size === 0) return;
+
+    for (const [connectionId, { version: currentCollVersion }] of subscribers.entries()) {
+      try {
+        const connection = this.connectionManager.getLocalConnection(connectionId);
+        if (!connection || connection.isDead) {
+          continue;
+        }
+
+        const newRecordIds = await this.collectionManager.resolveCollection(collectionId, connection);
+        const previousRecordIdsKey = `mesh:collection:${collectionId}:${connectionId}`;
+        const previousRecordIdsStr = await this.pubClient.get(previousRecordIdsKey);
+        const previousRecordIds = previousRecordIdsStr ? JSON.parse(previousRecordIdsStr) : [];
+
+        const added = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
+        const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id));
+
+        const deletedRecords = [];
+        for (const recordId of changedRecordIds) {
+          if (previousRecordIds.includes(recordId) && !newRecordIds.includes(recordId)) {
+            deletedRecords.push(recordId);
           }
         }
+
+        const changeAffectsMembership = added.length > 0 || removed.length > 0;
+        const deletionAffectsExistingMember = deletedRecords.length > 0;
+
+        if (changeAffectsMembership || deletionAffectsExistingMember) {
+          const newCollectionVersion = currentCollVersion + 1;
+          this.collectionManager.updateSubscriptionVersion(collectionId, connectionId, newCollectionVersion);
+
+          await this.pubClient.set(previousRecordIdsKey, JSON.stringify(newRecordIds));
+
+          connection.send({
+            command: "mesh/collection-diff",
+            payload: { collectionId, added, removed, version: newCollectionVersion },
+          });
+        }
+
+        for (const recordId of changedRecordIds) {
+          if (newRecordIds.includes(recordId)) {
+            try {
+              const { record, version } = await this.recordManager.getRecordAndVersion(recordId);
+              if (record) {
+                connection.send({
+                  command: "mesh/record-update",
+                  payload: { recordId, version, full: record },
+                });
+              }
+            } catch (recordError) {
+              // likely deleted
+              serverLogger.info(`Record ${recordId} not found during collection update (likely deleted).`);
+            }
+          }
+        }
+      } catch (connError) {
+        this.emitError(new Error(`Error processing collection ${collectionId} for connection ${connectionId}: ${connError}`));
       }
-    } catch (error) {
-      this.emitError(new Error(`Failed to handle collection record change for ${changedRecordId}: ${error}`));
     }
   }
 
@@ -312,5 +360,23 @@ export class PubSubManager {
    */
   getPubSubChannel(instanceId: string): string {
     return `${PUB_SUB_CHANNEL_PREFIX}${instanceId}`;
+  }
+
+  /**
+   * Cleans up all pending timeouts and collections.
+   * Call this when the PubSubManager is being destroyed.
+   */
+  cleanup(): void {
+    for (const timeout of this.collectionUpdateTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.collectionUpdateTimeouts.clear();
+
+    for (const timeout of this.collectionMaxDelayTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.collectionMaxDelayTimeouts.clear();
+
+    this.pendingCollectionUpdates.clear();
   }
 }
