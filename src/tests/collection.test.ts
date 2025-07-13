@@ -62,8 +62,8 @@ describe("Collection Subscriptions", () => {
     const diffs: Array<{ added: string[]; removed: string[]; version: number }> = [];
 
     const result = await client.subscribeCollection("collection:all-tasks", {
-      onUpdate: (recordId, update) => {
-        updates.push({ recordId, data: update });
+      onUpdate: (update) => {
+        updates.push({ recordId: update.id, data: update });
       },
       onDiff: (diff) => {
         diffs.push(diff);
@@ -168,7 +168,7 @@ describe("Collection Subscriptions", () => {
     await server.publishRecordUpdate(initialRecord1.id, updatedRecord1);
     await wait(100);
     expect(mockOnUpdate).toHaveBeenCalledTimes(1);
-    expect(mockOnUpdate).toHaveBeenCalledWith(initialRecord1.id, expect.objectContaining({ id: initialRecord1.id, record: updatedRecord1 }));
+    expect(mockOnUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: initialRecord1.id, record: updatedRecord1 }));
 
     await client.unsubscribeCollection("collection:initial-tasks");
   });

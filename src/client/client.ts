@@ -99,7 +99,7 @@ export class MeshClient extends EventEmitter {
     {
       recordIds: Set<string>;
       version: number;
-      onUpdate?: (recordId: string, update: { id: string; record?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
+      onUpdate?: (update: { id: string; record?: any; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     }
   > = new Map();
@@ -567,11 +567,10 @@ export class MeshClient extends EventEmitter {
           const transformedPayload = {
             id: recordId,
             record: full,
-            patch,
             version,
             deleted: false,
           };
-          await collectionSub.onUpdate(recordId, transformedPayload);
+          await collectionSub.onUpdate(transformedPayload);
         } catch (error) {
           clientLogger.error(`Error in collection record update callback for ${collectionId}:`, error);
         }
@@ -852,7 +851,7 @@ export class MeshClient extends EventEmitter {
   async subscribeCollection(
     collectionId: string,
     options: {
-      onUpdate?: (recordId: string, update: { id: string; record?: any; patch?: Operation[]; version: number; deleted?: boolean }) => void | Promise<void>;
+      onUpdate?: (update: { id: string; record?: any; version: number; deleted?: boolean }) => void | Promise<void>;
       onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
     } = {},
   ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {

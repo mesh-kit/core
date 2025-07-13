@@ -399,7 +399,8 @@ export class MeshServer extends WebSocketServer {
   /**
    * Lists all records matching a pattern in Redis.
    *
-   * @param {string} pattern - The pattern to match record IDs against.
+   * @param {string} pattern - Redis glob pattern to match record IDs against (e.g., "user:*", "post:?", "[abc]*").
+   *                          Uses Redis glob syntax, not JavaScript regex.
    * @returns {Promise<string[]>} The matching record IDs.
    */
   async listRecordsMatching(pattern: string): Promise<string[]> {
