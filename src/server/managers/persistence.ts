@@ -107,7 +107,7 @@ export class PersistenceManager extends EventEmitter {
             for (const record of records) {
               try {
                 const { recordId, value, version } = record;
-                const parsedValue = JSON.parse(value);
+                const parsedValue = typeof value === "string" ? JSON.parse(value) : value;
 
                 const recordKey = this.recordManager.recordKey(recordId);
                 const versionKey = this.recordManager.recordVersionKey(recordId);
