@@ -119,7 +119,7 @@ export class PersistenceManager extends EventEmitter {
 
                 serverLogger.debug(`Restored record ${recordId} (version ${version})`);
               } catch (parseErr) {
-                serverLogger.error(`Failed to parse record value: ${parseErr}`);
+                serverLogger.error(`Failed to parse record value for recordId: ${record.recordId}: ${parseErr}`);
               }
             }
           } else {
