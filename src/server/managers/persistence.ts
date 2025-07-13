@@ -29,6 +29,7 @@ export class PersistenceManager extends EventEmitter {
   private isShuttingDown = false;
   private initialized = false;
   private recordManager: RecordManager | null = null;
+  private pendingRecordUpdates: Array<{ recordId: string; value: any; version: number }> = [];
 
   private messageStream: MessageStream;
 
@@ -52,6 +53,37 @@ export class PersistenceManager extends EventEmitter {
     this.recordManager = recordManager;
   }
 
+  /**
+   * Waits until the persistence manager is fully ready and initialized.
+   *
+   * @returns {Promise<void>} A promise that resolves when persistence is ready.
+   */
+  async ready(): Promise<void> {
+    if (this.initialized) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      this.once("initialized", resolve);
+    });
+  }
+
+  /**
+   * Processes any record updates that were buffered during initialization
+   */
+  private async processPendingRecordUpdates(): Promise<void> {
+    if (this.pendingRecordUpdates.length === 0) return;
+
+    serverLogger.info(`Processing ${this.pendingRecordUpdates.length} pending record updates`);
+
+    const updates = [...this.pendingRecordUpdates];
+    this.pendingRecordUpdates = [];
+
+    for (const { recordId, value, version } of updates) {
+      this.handleRecordUpdate(recordId, value, version);
+    }
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
@@ -63,6 +95,11 @@ export class PersistenceManager extends EventEmitter {
       await this.restorePersistedRecords();
 
       this.initialized = true;
+
+      // process any pending record updates that occurred before initialization
+      await this.processPendingRecordUpdates();
+
+      this.emit("initialized");
     } catch (err) {
       serverLogger.error("Failed to initialize persistence manager:", err);
       throw err;
@@ -364,7 +401,14 @@ export class PersistenceManager extends EventEmitter {
    * @param version record version
    */
   handleRecordUpdate(recordId: string, value: any, version: number): void {
-    if (!this.initialized || this.isShuttingDown) return;
+    if (this.isShuttingDown) return;
+
+    // buffer for later processing
+    if (!this.initialized) {
+      this.pendingRecordUpdates.push({ recordId, value, version });
+      serverLogger.debug(`Buffered record update for ${recordId} (pending initialization)`);
+      return;
+    }
 
     const options = this.getRecordPersistenceOptions(recordId);
     if (!options) return; // record doesn't match any persistence pattern

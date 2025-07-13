@@ -163,15 +163,17 @@ export class MeshServer extends WebSocketServer {
   }
 
   /**
-   * Waits until the service is ready by ensuring it is listening and the instance channel subscription is established.
+   * Waits until the service is ready by ensuring it is listening, the instance channel subscription is established,
+   * and the persistence manager is fully initialized.
    *
    * @returns {Promise<void>} A promise that resolves when the service is fully ready.
    * @throws {Error} If the readiness process fails or if any awaited promise rejects.
    */
   async ready(): Promise<void> {
     const listeningPromise = this.listening ? Promise.resolve() : new Promise<void>((resolve) => this.once("listening", resolve));
+    const persistencePromise = this.persistenceManager ? this.persistenceManager.ready() : Promise.resolve();
 
-    await Promise.all([listeningPromise, this.pubSubManager.getSubscriptionPromise()]);
+    await Promise.all([listeningPromise, this.pubSubManager.getSubscriptionPromise(), persistencePromise]);
   }
 
   private applyListeners() {
