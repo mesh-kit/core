@@ -1,6 +1,7 @@
 import type { Redis } from "ioredis";
 import jsonpatch, { type Operation } from "fast-json-patch";
 import type { MeshServer } from "../mesh-server";
+import { deepMerge, isObject } from "../../common/deep-merge";
 
 const RECORD_KEY_PREFIX = "mesh:record:";
 const RECORD_VERSION_KEY_PREFIX = "mesh:record-version:";
@@ -100,7 +101,7 @@ export class RecordManager {
    *
    * @param {string} recordId - The unique identifier of the record to update.
    * @param {any} newValue - The new value to set for the record, or partial value when using merge strategy.
-   * @param {"replace" | "merge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
+   * @param {"replace" | "merge" | "deepMerge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<{ patch: Operation[]; version: number; finalValue: any } | null>}
    *          A promise resolving to an object containing the JSON Patch operations, new version number, and final merged value,
    *          or null if there were no changes to publish.
@@ -109,7 +110,7 @@ export class RecordManager {
   async publishUpdate(
     recordId: string,
     newValue: any,
-    strategy: "replace" | "merge" = "replace",
+    strategy: "replace" | "merge" | "deepMerge" = "replace",
   ): Promise<{ patch: Operation[]; version: number; finalValue: any } | null> {
     const recordKey = this.recordKey(recordId);
     const versionKey = this.recordVersionKey(recordId);
@@ -119,23 +120,18 @@ export class RecordManager {
     let finalValue: any;
 
     if (strategy === "merge") {
-      // For merge strategy, we need to merge the new values with the existing record
-      // Only works if both old and new values are objects
-      if (
-        typeof oldValue === "object" &&
-        oldValue !== null &&
-        typeof newValue === "object" &&
-        newValue !== null &&
-        !Array.isArray(oldValue) &&
-        !Array.isArray(newValue)
-      ) {
+      if (isObject(oldValue) && isObject(newValue)) {
         finalValue = { ...oldValue, ...newValue };
       } else {
-        // If not objects, fall back to replace behavior
+        finalValue = newValue;
+      }
+    } else if (strategy === "deepMerge") {
+      if (isObject(oldValue) && isObject(newValue)) {
+        finalValue = deepMerge(oldValue, newValue);
+      } else {
         finalValue = newValue;
       }
     } else {
-      // Replace strategy - use the new value as is
       finalValue = newValue;
     }
 

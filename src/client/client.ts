@@ -977,7 +977,7 @@ export class MeshClient extends EventEmitter {
    * @param {string} recordId - The ID of the record to update.
    * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
    * @param {Object} [options] - Optional update options.
-   * @param {"replace" | "merge"} [options.strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
+   * @param {"replace" | "merge" | "deepMerge"} [options.strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<boolean>} True if the update was successfully published, false otherwise.
    *
    * @example
@@ -988,8 +988,13 @@ export class MeshClient extends EventEmitter {
    * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
    * await client.publishRecordUpdate("user:123", { name: "new name" }, { strategy: "merge" });
    * // Result: { name: "new name", age: 30, city: "NYC" }
+   *
+   * // Deep merge strategy - recursively merges nested objects
+   * // If record currently contains: { name: "John", profile: { age: 30, city: "NYC", preferences: { theme: "dark" } } }
+   * await client.publishRecordUpdate("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
+   * // Result: { name: "John", profile: { age: 31, city: "NYC", preferences: { theme: "dark" } } }
    */
-  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" }): Promise<boolean> {
+  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<boolean> {
     try {
       const result = await this.command("mesh/publish-record-update", {
         recordId,

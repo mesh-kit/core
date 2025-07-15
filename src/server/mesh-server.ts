@@ -363,7 +363,7 @@ export class MeshServer extends WebSocketServer {
    *
    * @param {string} recordId - The ID of the record to update.
    * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
-   * @param {"replace" | "merge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties.
+   * @param {"replace" | "merge" | "deepMerge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<void>}
    * @throws {Error} If the update fails.
    *
@@ -375,8 +375,13 @@ export class MeshServer extends WebSocketServer {
    * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
    * await server.publishRecordUpdate("user:123", { name: "new name" }, "merge");
    * // Result: { name: "new name", age: 30, city: "NYC" }
+   *
+   * // Deep merge strategy - recursively merges nested objects
+   * // If record currently contains: { name: "John", profile: { age: 30, city: "NYC", preferences: { theme: "dark" } } }
+   * await server.publishRecordUpdate("user:123", { profile: { age: 31 } }, "deepMerge");
+   * // Result: { name: "John", profile: { age: 31, city: "NYC", preferences: { theme: "dark" } } }
    */
-  async publishRecordUpdate(recordId: string, newValue: any, strategy: "replace" | "merge" = "replace"): Promise<void> {
+  async publishRecordUpdate(recordId: string, newValue: any, strategy: "replace" | "merge" | "deepMerge" = "replace"): Promise<void> {
     return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue, strategy);
   }
 
@@ -731,20 +736,23 @@ export class MeshServer extends WebSocketServer {
       return this.recordSubscriptionManager.removeSubscription(recordId, connectionId);
     });
 
-    this.exposeCommand<{ recordId: string; newValue: any; strategy?: "replace" | "merge" }, { success: boolean }>("mesh/publish-record-update", async (ctx) => {
-      const { recordId, newValue, strategy = "replace" } = ctx.payload;
+    this.exposeCommand<{ recordId: string; newValue: any; strategy?: "replace" | "merge" | "deepMerge" }, { success: boolean }>(
+      "mesh/publish-record-update",
+      async (ctx) => {
+        const { recordId, newValue, strategy = "replace" } = ctx.payload;
 
-      if (!(await this.recordSubscriptionManager.isRecordWritable(recordId, ctx.connection))) {
-        throw new Error(`Record "${recordId}" is not writable by this connection.`);
-      }
+        if (!(await this.recordSubscriptionManager.isRecordWritable(recordId, ctx.connection))) {
+          throw new Error(`Record "${recordId}" is not writable by this connection.`);
+        }
 
-      try {
-        await this.publishRecordUpdate(recordId, newValue, strategy);
-        return { success: true };
-      } catch (e: any) {
-        throw new Error(`Failed to publish update for record "${recordId}": ${e.message}`);
-      }
-    });
+        try {
+          await this.publishRecordUpdate(recordId, newValue, strategy);
+          return { success: true };
+        } catch (e: any) {
+          throw new Error(`Failed to publish update for record "${recordId}": ${e.message}`);
+        }
+      },
+    );
 
     this.exposeCommand<
       { roomName: string },
