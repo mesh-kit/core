@@ -220,13 +220,39 @@ export class CollectionManager {
    * @param {string} pattern - The pattern to match record IDs against.
    * @returns {Promise<string[]>} The matching record IDs.
    */
-  async listRecordsMatching(pattern: string): Promise<string[]> {
+  async listRecordsMatching(pattern: string): Promise<string[]>;
+  async listRecordsMatching<T>(pattern: string, mapper: (record: any) => T): Promise<T[]>;
+  async listRecordsMatching<T>(pattern: string, mapper?: (record: any) => T): Promise<string[] | T[]> {
     try {
       const recordKeyPrefix = "mesh:record:";
       const keys = await this.redis.keys(`${recordKeyPrefix}${pattern}`);
-      return keys.map((key) => key.substring(recordKeyPrefix.length));
-    } catch (error) {
-      this.emitError(new Error(`Failed to list records matching "${pattern}": ${error}`));
+      const cleanRecordIds = keys.map((key) => key.substring(recordKeyPrefix.length));
+
+      if (!mapper) {
+        return cleanRecordIds;
+      }
+
+      if (keys.length === 0) {
+        return [];
+      }
+
+      const records = await this.redis.mget(keys);
+      const mappedValues = records
+        .map((val) => {
+          if (val === null) return null;
+          try {
+            const parsed = JSON.parse(val);
+            return mapper(parsed);
+          } catch (e: any) {
+            this.emitError(new Error(`Failed to parse record for mapping: ${val} - ${e.message}`));
+            return null;
+          }
+        })
+        .filter((v): v is T => v !== null);
+
+      return mappedValues;
+    } catch (error: any) {
+      this.emitError(new Error(`Failed to list records matching "${pattern}": ${error.message}`));
       return [];
     }
   }

@@ -405,7 +405,21 @@ export class MeshServer extends WebSocketServer {
    *                          Uses Redis glob syntax, not JavaScript regex.
    * @returns {Promise<string[]>} The matching record IDs.
    */
-  async listRecordsMatching(pattern: string): Promise<string[]> {
+  async listRecordsMatching(pattern: string): Promise<string[]>;
+  /**
+   * Finds all record keys matching a pattern, retrieves their values,
+   * and applies a mapper function to each.
+   *
+   * @template T
+   * @param {string} pattern - The glob pattern to match record IDs against.
+   * @param {(record: any) => T} mapper - A function to apply to each record.
+   * @returns {Promise<T[]>} The mapped record values.
+   */
+  async listRecordsMatching<T>(pattern: string, mapper: (record: any) => T): Promise<T[]>;
+  async listRecordsMatching<T>(pattern: string, mapper?: (record: any) => T): Promise<string[] | T[]> {
+    if (mapper) {
+      return this.collectionManager.listRecordsMatching<T>(pattern, mapper);
+    }
     return this.collectionManager.listRecordsMatching(pattern);
   }
 

@@ -269,6 +269,21 @@ describe("Collection Subscriptions", () => {
 
     await client.unsubscribeCollection("collection:project:1:tasks");
   });
+
+  test("should list and map records matching a pattern", async () => {
+    await server.publishRecordUpdate("map:task:1", { id: 1, title: "Task 1", completed: false });
+    await server.publishRecordUpdate("map:task:2", { id: 2, title: "Task 2", completed: true });
+    await server.publishRecordUpdate("map:task:3", { id: 3, title: "Task 3", completed: false });
+
+    const recordIds = await server.listRecordsMatching("map:task:*");
+    expect(recordIds.sort()).toEqual(["map:task:1", "map:task:2", "map:task:3"]);
+
+    const titles = await server.listRecordsMatching("map:task:*", (rec) => rec.title);
+    expect(titles.sort()).toEqual(["Task 1", "Task 2", "Task 3"]);
+
+    const completedTasks = await server.listRecordsMatching("map:task:*", (rec) => (rec.completed ? rec.id : null));
+    expect(completedTasks).toEqual([2]);
+  });
 });
 
 describe.sequential("Collection Subscriptions - Multi-Instance", () => {
