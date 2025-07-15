@@ -677,6 +677,23 @@ export class MeshServer extends WebSocketServer {
       }
     });
 
+    this.exposeCommand<{ metadata: any }, { success: boolean }>("mesh/set-my-connection-metadata", async (ctx) => {
+      const { metadata } = ctx.payload;
+      const connectionId = ctx.connection.id;
+      const connection = this.connectionManager.getLocalConnection(connectionId);
+
+      if (connection) {
+        try {
+          await this.connectionManager.setMetadata(connection, metadata);
+          return { success: true };
+        } catch (error) {
+          return { success: false };
+        }
+      } else {
+        return { success: false };
+      }
+    });
+
     this.exposeCommand<{ roomName: string }, { metadata: any }>("mesh/get-room-metadata", async (ctx) => {
       const { roomName } = ctx.payload;
       const metadata = await this.roomManager.getMetadata(roomName);

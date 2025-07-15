@@ -1211,6 +1211,24 @@ export class MeshClient extends EventEmitter {
   }
 
   /**
+   * Sets metadata for the current connection.
+   *
+   * @param {any} metadata - The metadata to set for the current connection.
+   * @returns {Promise<boolean>} A promise that resolves to true if the metadata was successfully set, false otherwise.
+   */
+  async setConnectionMetadata(metadata: any): Promise<boolean> {
+    try {
+      const result = await this.command("mesh/set-my-connection-metadata", {
+        metadata,
+      });
+      return result.success;
+    } catch (error) {
+      clientLogger.error(`Failed to set metadata for connection:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Forces a complete refresh of presence data for a room.
    * This will fetch the current state of all users in the room and trigger the presence handler.
    *

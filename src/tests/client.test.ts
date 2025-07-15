@@ -256,6 +256,51 @@ describe("MeshClient", () => {
     expect(retrievedMetadata).toEqual(metadata);
   });
 
+  test("client can set their own connection metadata", async () => {
+    await client.connect();
+    const metadata = { user: "test-user", status: "online", preferences: { theme: "dark" } };
+
+    const success = await client.setConnectionMetadata(metadata);
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual(metadata);
+  });
+
+  test("client can overwrite existing connection metadata", async () => {
+    await client.connect();
+
+    const initialMetadata = { user: "initial-user", status: "away" };
+    await client.setConnectionMetadata(initialMetadata);
+
+    const newMetadata = { user: "updated-user", status: "online", newField: "value" };
+    const success = await client.setConnectionMetadata(newMetadata);
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual(newMetadata);
+  });
+
+  test("client can set null metadata", async () => {
+    await client.connect();
+
+    const success = await client.setConnectionMetadata(null);
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toBeNull();
+  });
+
+  test("client can set empty object metadata", async () => {
+    await client.connect();
+
+    const success = await client.setConnectionMetadata({});
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual({});
+  });
+
   test("helper methods register event listeners correctly", async () => {
     const connectSpy = vi.fn();
     const disconnectSpy = vi.fn();
