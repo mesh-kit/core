@@ -871,7 +871,7 @@ export class MeshClient extends EventEmitter {
         if (options.onDiff) {
           try {
             await options.onDiff({
-              added: result.records.map(r => r.record), // use full records instead of just IDs
+              added: result.records.map((r: any) => r.record), // use full records instead of just IDs
               removed: [],
               version: result.version,
             });
