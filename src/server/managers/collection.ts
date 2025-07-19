@@ -118,53 +118,6 @@ export class CollectionManager {
   }
 
   /**
-   * Refreshes a collection subscription for a specific connection.
-   * Computes the diff between the current and previous record IDs,
-   * updates the version, and returns the changes.
-   *
-   * @param {string} collectionId - The collection ID to refresh.
-   * @param {string} connectionId - The connection ID to refresh for.
-   * @param {Connection} connection - The connection object.
-   * @returns {Promise<{ added: any[]; removed: any[]; version: number }>}
-   */
-  async refreshCollection(collectionId: string, connectionId: string, connection: Connection): Promise<{ added: any[]; removed: any[]; version: number }> {
-    const collectionSubs = this.collectionSubscriptions.get(collectionId);
-    if (!collectionSubs || !collectionSubs.has(connectionId)) {
-      throw new Error(`Connection ${connectionId} is not subscribed to collection ${collectionId}`);
-    }
-
-    const { version } = collectionSubs.get(connectionId)!;
-    const newRecords = await this.resolveCollection(collectionId, connection);
-    const newRecordIds = newRecords.map((record) => record.id); // extract IDs from records
-
-    // get the previous record IDs for this connection
-    const previousRecordIdsKey = `mesh:collection:${collectionId}:${connectionId}`;
-    const previousRecordIdsStr = await this.redis.get(previousRecordIdsKey);
-    const previousRecordIds = previousRecordIdsStr ? JSON.parse(previousRecordIdsStr) : [];
-
-    // compute the diff - added gets full records, removed gets just IDs
-    const addedIds = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
-    const added = newRecords.filter((record) => addedIds.includes(record.id)); // full records for added
-    const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id)); // IDs for removed
-
-    // update the version if there are changes
-    let newVersion = version;
-    if (added.length > 0 || removed.length > 0) {
-      newVersion = version + 1;
-      collectionSubs.set(connectionId, { version: newVersion });
-
-      // store the new record IDs
-      await this.redis.set(previousRecordIdsKey, JSON.stringify(newRecordIds));
-    }
-
-    return {
-      added,
-      removed,
-      version: newVersion,
-    };
-  }
-
-  /**
    * Publishes a collection update to Redis.
    * This should be called when a record is updated or deleted.
    *

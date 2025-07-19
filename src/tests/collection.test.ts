@@ -58,13 +58,9 @@ describe("Collection Subscriptions", () => {
     server.exposeRecord("task:*");
     server.exposeCollection("collection:all-tasks", async () => server.listRecordsMatching("task:*"));
 
-    const updates: Array<{ recordId: string; data: any }> = [];
-    const diffs: Array<{ added: string[]; removed: string[]; version: number }> = [];
+    const diffs: Array<{ added: any[]; removed: any[]; changed: any[]; version: number }> = [];
 
     const result = await client.subscribeCollection("collection:all-tasks", {
-      onUpdate: (update) => {
-        updates.push({ recordId: update.id, data: update });
-      },
       onDiff: (diff) => {
         diffs.push(diff);
       },
@@ -82,32 +78,38 @@ describe("Collection Subscriptions", () => {
     await server.publishRecordUpdate("task:4", { id: "task:4", title: "Task 4", completed: false });
     await wait(100);
 
-    // verify diff received
-    expect(diffs.length).toBe(2); // initial + update
-    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4" })]));
+    // verify diff received - we get initial + task:4 added + task:4 record created
+    expect(diffs.length).toBe(3); // initial + added task:4 + changed task:4 (from record creation)
+    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4", record: expect.any(Object) })]));
     expect(diffs[1]!.removed).toEqual([]);
+    expect(diffs[1]!.changed).toEqual([]);
     expect(diffs[1]!.version).toBe(2);
 
-    // update a record, triggering onUpdate
+    // update a record, triggering onDiff with changed
     await server.publishRecordUpdate("task:1", { id: "task:1", title: "Updated Task 1", completed: true });
     await wait(100);
 
-    expect(updates.length).toBe(2); // task 4, then task 1
-    expect(updates.find((u) => u.recordId === "task:1")).toBeDefined();
+    expect(diffs.length).toBe(4); // initial + added task:4 + changed task:4 + changed task:1
+    expect(diffs[3]!.added).toEqual([]);
+    expect(diffs[3]!.removed).toEqual([]);
+    expect(diffs[3]!.changed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:1" })]));
+    expect(diffs[3]!.version).toBeGreaterThanOrEqual(2);
 
     // remove a record to trigger another diff
     await server.deleteRecord("task:2");
     await wait(100);
 
     // verify diff was received
-    expect(diffs.length).toBeGreaterThan(1);
+    expect(diffs.length).toBe(5); // initial + added task:4 + changed task:4 + changed task:1 + removed task:2
     // the second diff should (still) be the addition of task:4
-    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4" })]));
+    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4", record: expect.any(Object) })]));
     expect(diffs[1]!.removed).toEqual([]);
+    expect(diffs[1]!.changed).toEqual([]);
 
-    // the third diff should be the removal of task:2
-    expect(diffs[2]!.added).toEqual([]);
-    expect(diffs[2]!.removed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:2" })]));
+    // the fifth diff should be the removal of task:2
+    expect(diffs[4]!.added).toEqual([]);
+    expect(diffs[4]!.removed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:2", record: expect.any(Object) })]));
+    expect(diffs[4]!.changed).toEqual([]);
 
     const unsubResult = await client.unsubscribeCollection("collection:all-tasks");
     expect(unsubResult).toBe(true);
@@ -123,11 +125,9 @@ describe("Collection Subscriptions", () => {
     server.exposeRecord("initial:task:*");
     server.exposeCollection("collection:initial-tasks", async () => server.listRecordsMatching("initial:task:*"));
 
-    const mockOnUpdate = vi.fn();
     const mockOnDiff = vi.fn();
 
     const result = (await client.subscribeCollection("collection:initial-tasks", {
-      onUpdate: mockOnUpdate,
       onDiff: mockOnDiff,
     })) as { success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }; // Updated records type
 
@@ -155,20 +155,26 @@ describe("Collection Subscriptions", () => {
     // onDiff was called once with the initial state
     expect(mockOnDiff).toHaveBeenCalledTimes(1);
     expect(mockOnDiff).toHaveBeenCalledWith({
-      added: expect.arrayContaining([expect.objectContaining({ id: initialRecord1.id }), expect.objectContaining({ id: initialRecord2.id })]),
+      added: expect.arrayContaining([
+        expect.objectContaining({ id: initialRecord1.id, record: expect.any(Object) }),
+        expect.objectContaining({ id: initialRecord2.id, record: expect.any(Object) }),
+      ]),
       removed: [],
+      changed: [],
       version: 1,
     });
 
-    // onUpdate was NOT called during the initial subscription
-    expect(mockOnUpdate).not.toHaveBeenCalled();
-
-    // subsequent update still calls onUpdate
+    // subsequent update calls onDiff with changed
     const updatedRecord1 = { ...initialRecord1, title: "Updated Task 1" };
     await server.publishRecordUpdate(initialRecord1.id, updatedRecord1);
     await wait(100);
-    expect(mockOnUpdate).toHaveBeenCalledTimes(1);
-    expect(mockOnUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: initialRecord1.id, record: updatedRecord1 }));
+    expect(mockOnDiff).toHaveBeenCalledTimes(2);
+    expect(mockOnDiff).toHaveBeenLastCalledWith({
+      added: [],
+      removed: [],
+      changed: expect.arrayContaining([expect.objectContaining({ id: initialRecord1.id, record: updatedRecord1 })]),
+      version: expect.any(Number),
+    });
 
     await client.unsubscribeCollection("collection:initial-tasks");
   });
@@ -230,44 +236,6 @@ describe("Collection Subscriptions", () => {
 
     await client.unsubscribeCollection("collection:user:1:tasks");
     await client.unsubscribeCollection("collection:user:2:tasks");
-  });
-
-  test("should handle manual refresh of collections", async () => {
-    await server.publishRecordUpdate("project:1:task:1", { id: "project:1:task:1", title: "Project 1 Task 1" });
-    server.exposeRecord("project:*:task:*");
-    server.exposeCollection("collection:project:1:tasks", async () => server.listRecordsMatching("project:1:task:*"));
-
-    const result = await client.subscribeCollection("collection:project:1:tasks");
-    expect(result.success).toBe(true);
-    expect(result.recordIds.length).toBe(1);
-
-    await server.publishRecordUpdate("project:1:task:2", { id: "project:1:task:2", title: "Project 1 Task 2" });
-
-    // don't wait, and immediately refresh, not allowing enough time for the update
-    // to be published to clients. this way, when refreshing the collection, we receive
-    // an added: ['project:1:task:2'] entry
-    // await wait(100);
-
-    // manually refresh the collection
-    const refreshResult = await client.refreshCollection("collection:project:1:tasks");
-
-    // verify refresh result
-    expect(refreshResult.success).toBe(true);
-
-    // just in case this test doesn't pan out as expected..
-    if (refreshResult.added.length === 0) {
-      // if refreshCollection took longer than expected, let's just
-      // ensure this record actually exists
-      const recordExists = await redis.exists("mesh:record:project:1:task:2");
-      expect(recordExists).toBe(1);
-    } else {
-      // otherwise, we expect the added array to contain the new record
-      expect(refreshResult.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "project:1:task:2" })]));
-      expect(refreshResult.removed).toEqual([]);
-      expect(refreshResult.version).toBe(2);
-    }
-
-    await client.unsubscribeCollection("collection:project:1:tasks");
   });
 
   test("should support paginated collections using collection names", async () => {
@@ -399,18 +367,20 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
 
     await wait(100);
 
-    // verify both clients received the diff (expecting exactly 1 call since subscription)
-    expect(onDiffA).toHaveBeenCalledTimes(1);
+    // verify both clients received the diff (expecting 2 calls: membership change + record update)
+    expect(onDiffA).toHaveBeenCalledTimes(2);
     expect(onDiffA).toHaveBeenCalledWith({
-      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1", record: expect.any(Object) })]),
       removed: [],
+      changed: [],
       version: 2,
     });
 
-    expect(onDiffB).toHaveBeenCalledTimes(1);
+    expect(onDiffB).toHaveBeenCalledTimes(2);
     expect(onDiffB).toHaveBeenCalledWith({
-      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1", record: expect.any(Object) })]),
       removed: [],
+      changed: [],
       version: 2,
     });
 
@@ -426,14 +396,16 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
     expect(onDiffA).toHaveBeenCalledTimes(1);
     expect(onDiffA).toHaveBeenCalledWith({
       added: [],
-      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1", record: expect.any(Object) })]),
+      changed: [],
       version: 3,
     });
 
     expect(onDiffB).toHaveBeenCalledTimes(1);
     expect(onDiffB).toHaveBeenCalledWith({
       added: [],
-      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1", record: expect.any(Object) })]),
+      changed: [],
       version: 3,
     });
 

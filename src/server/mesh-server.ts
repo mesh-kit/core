@@ -922,32 +922,6 @@ export class MeshServer extends WebSocketServer {
 
       return this.collectionManager.removeSubscription(collectionId, connectionId);
     });
-
-    this.exposeCommand<{ collectionId: string }, { success: boolean; added: string[]; removed: string[]; version: number }>(
-      "mesh/refresh-collection",
-      async (ctx) => {
-        const { collectionId } = ctx.payload;
-        const connectionId = ctx.connection.id;
-
-        if (!(await this.collectionManager.isCollectionExposed(collectionId, ctx.connection))) {
-          return { success: false, added: [], removed: [], version: 0 };
-        }
-
-        try {
-          const { added, removed, version } = await this.collectionManager.refreshCollection(collectionId, connectionId, ctx.connection);
-
-          return {
-            success: true,
-            added,
-            removed,
-            version,
-          };
-        } catch (e) {
-          console.error(`Failed to refresh collection ${collectionId}:`, e);
-          return { success: false, added: [], removed: [], version: 0 };
-        }
-      },
-    );
   }
 
   // #endregion
