@@ -68,10 +68,10 @@ describe("Collection Subscriptions", () => {
 
     // initial subscription
     expect(result.success).toBe(true);
-    expect(result.recordIds.length).toBe(3);
-    expect(result.recordIds).toContain("task:1");
-    expect(result.recordIds).toContain("task:2");
-    expect(result.recordIds).toContain("task:3");
+    expect(result.ids.length).toBe(3);
+    expect(result.ids).toContain("task:1");
+    expect(result.ids).toContain("task:2");
+    expect(result.ids).toContain("task:3");
     expect(result.version).toBe(1);
 
     // add a new record to trigger a diff
@@ -129,13 +129,13 @@ describe("Collection Subscriptions", () => {
 
     const result = (await client.subscribeCollection("collection:initial-tasks", {
       onDiff: mockOnDiff,
-    })) as { success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }; // Updated records type
+    })) as { success: boolean; ids: string[]; records: Array<{ id: string; record: any }>; version: number }; // Updated records type
 
     expect(result.success).toBe(true);
     expect(result.version).toBe(1);
-    expect(result.recordIds).toBeInstanceOf(Array);
-    expect(result.recordIds.length).toBe(2);
-    expect(result.recordIds).toEqual(expect.arrayContaining([initialRecord1.id, initialRecord2.id]));
+    expect(result.ids).toBeInstanceOf(Array);
+    expect(result.ids.length).toBe(2);
+    expect(result.ids).toEqual(expect.arrayContaining([initialRecord1.id, initialRecord2.id]));
 
     expect(result.records).toBeInstanceOf(Array);
     expect(result.records.length).toBe(2);
@@ -195,7 +195,7 @@ describe("Collection Subscriptions", () => {
     // subscribe to collection
     const subResult = await client.subscribeCollection(collectionId);
     expect(subResult.success).toBe(true);
-    expect(subResult.recordIds).toContain(recordId);
+    expect(subResult.ids).toContain(recordId);
 
     // verify redis key exists
     const keyExistsBefore = await redis.exists(redisKeyPattern);
@@ -224,15 +224,15 @@ describe("Collection Subscriptions", () => {
     // subscribe to user 1's tasks
     const user1Result = await client.subscribeCollection("collection:user:1:tasks");
     expect(user1Result.success).toBe(true);
-    expect(user1Result.recordIds.length).toBe(2);
-    expect(user1Result.recordIds).toContain("user:1:task:1");
-    expect(user1Result.recordIds).toContain("user:1:task:2");
+    expect(user1Result.ids.length).toBe(2);
+    expect(user1Result.ids).toContain("user:1:task:1");
+    expect(user1Result.ids).toContain("user:1:task:2");
 
     // subscribe to user 2's tasks
     const user2Result = await client.subscribeCollection("collection:user:2:tasks");
     expect(user2Result.success).toBe(true);
-    expect(user2Result.recordIds.length).toBe(1);
-    expect(user2Result.recordIds).toContain("user:2:task:1");
+    expect(user2Result.ids.length).toBe(1);
+    expect(user2Result.ids).toContain("user:2:task:1");
 
     await client.unsubscribeCollection("collection:user:1:tasks");
     await client.unsubscribeCollection("collection:user:2:tasks");
@@ -268,38 +268,38 @@ describe("Collection Subscriptions", () => {
     // page 1 (items 1-10)
     const page1Result = await client.subscribeCollection("items:page:1");
     expect(page1Result.success).toBe(true);
-    expect(page1Result.recordIds.length).toBe(10);
-    expect(page1Result.recordIds).toContain("item:1");
-    expect(page1Result.recordIds).toContain("item:10");
-    expect(page1Result.recordIds).not.toContain("item:11");
+    expect(page1Result.ids.length).toBe(10);
+    expect(page1Result.ids).toContain("item:1");
+    expect(page1Result.ids).toContain("item:10");
+    expect(page1Result.ids).not.toContain("item:11");
 
     await client.unsubscribeCollection("items:page:1");
 
     // page 2 (items 11-20)
     const page2Result = await client.subscribeCollection("items:page:2");
     expect(page2Result.success).toBe(true);
-    expect(page2Result.recordIds.length).toBe(10);
-    expect(page2Result.recordIds).toContain("item:11");
-    expect(page2Result.recordIds).toContain("item:20");
-    expect(page2Result.recordIds).not.toContain("item:10");
-    expect(page2Result.recordIds).not.toContain("item:21");
+    expect(page2Result.ids.length).toBe(10);
+    expect(page2Result.ids).toContain("item:11");
+    expect(page2Result.ids).toContain("item:20");
+    expect(page2Result.ids).not.toContain("item:10");
+    expect(page2Result.ids).not.toContain("item:21");
 
     await client.unsubscribeCollection("items:page:2");
 
     // page 3 (items 21-25, partial page)
     const page3Result = await client.subscribeCollection("items:page:3");
     expect(page3Result.success).toBe(true);
-    expect(page3Result.recordIds.length).toBe(5);
-    expect(page3Result.recordIds).toContain("item:21");
-    expect(page3Result.recordIds).toContain("item:25");
-    expect(page3Result.recordIds).not.toContain("item:20");
+    expect(page3Result.ids.length).toBe(5);
+    expect(page3Result.ids).toContain("item:21");
+    expect(page3Result.ids).toContain("item:25");
+    expect(page3Result.ids).not.toContain("item:20");
 
     await client.unsubscribeCollection("items:page:3");
 
     // page 4 (empty)
     const page4Result = await client.subscribeCollection("items:page:4");
     expect(page4Result.success).toBe(true);
-    expect(page4Result.recordIds.length).toBe(0);
+    expect(page4Result.ids.length).toBe(0);
 
     await client.unsubscribeCollection("items:page:4");
   });
@@ -350,13 +350,13 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
     // client A -> srv A
     const subA = await clientA.subscribeCollection("collection:multi-tasks", { onDiff: onDiffA });
     expect(subA.success).toBe(true);
-    expect(subA.recordIds).toEqual([]);
+    expect(subA.ids).toEqual([]);
     expect(subA.version).toBe(1);
 
     // client B -> srv B
     const subB = await clientB.subscribeCollection("collection:multi-tasks", { onDiff: onDiffB });
     expect(subB.success).toBe(true);
-    expect(subB.recordIds).toEqual([]);
+    expect(subB.ids).toEqual([]);
     expect(subB.version).toBe(1);
 
     onDiffA.mockClear();

@@ -77,22 +77,22 @@ export class CollectionManager {
    * @param {string} collectionId - The collection ID to subscribe to.
    * @param {string} connectionId - The connection ID subscribing.
    * @param {Connection} connection - The connection object.
-   * @returns {Promise<{ recordIds: string[]; records: any[]; version: number }>} The initial state of the collection.
+   * @returns {Promise<{ ids: string[]; records: any[]; version: number }>} The initial state of the collection.
    */
-  async addSubscription(collectionId: string, connectionId: string, connection: Connection): Promise<{ recordIds: string[]; records: any[]; version: number }> {
+  async addSubscription(collectionId: string, connectionId: string, connection: Connection): Promise<{ ids: string[]; records: any[]; version: number }> {
     if (!this.collectionSubscriptions.has(collectionId)) {
       this.collectionSubscriptions.set(collectionId, new Map());
     }
 
     const records = await this.resolveCollection(collectionId, connection);
-    const recordIds = records.map((record) => record.id); // extract IDs for tracking
+    const ids = records.map((record) => record.id); // extract IDs for tracking
     const version = 1;
 
     this.collectionSubscriptions.get(collectionId)!.set(connectionId, { version });
 
-    await this.redis.set(`mesh:collection:${collectionId}:${connectionId}`, JSON.stringify(recordIds));
+    await this.redis.set(`mesh:collection:${collectionId}:${connectionId}`, JSON.stringify(ids));
 
-    return { recordIds, records, version };
+    return { ids, records, version };
   }
 
   /**

@@ -97,7 +97,7 @@ export class MeshClient extends EventEmitter {
   private collectionSubscriptions: Map<
     string, // collectionId
     {
-      recordIds: Set<string>;
+      ids: Set<string>;
       version: number;
       onDiff?: (diff: { added: any[]; removed: any[]; changed: any[]; version: number }) => void | Promise<void>;
     }
@@ -560,7 +560,7 @@ export class MeshClient extends EventEmitter {
 
     // first, check if this record is part of any collections and notify their onDiff callbacks with changed
     for (const [collectionId, collectionSub] of this.collectionSubscriptions.entries()) {
-      if (collectionSub.recordIds.has(recordId) && collectionSub.onDiff) {
+      if (collectionSub.ids.has(recordId) && collectionSub.onDiff) {
         try {
           // transform the payload to match the { id, record } shape
           const transformedPayload = {
@@ -670,11 +670,11 @@ export class MeshClient extends EventEmitter {
 
     // update the local record IDs set
     for (const record of added) {
-      subscription.recordIds.add(record.id);
+      subscription.ids.add(record.id);
     }
 
     for (const record of removed) {
-      subscription.recordIds.delete(record.id);
+      subscription.ids.delete(record.id);
     }
 
     // notify the diff callback
@@ -855,14 +855,14 @@ export class MeshClient extends EventEmitter {
    * @param {string} collectionId - The ID of the collection to subscribe to.
    * @param {Object} options - Subscription options.
    * @param {Function} [options.onDiff] - Callback for collection changes (membership and record updates).
-   * @returns {Promise<{success: boolean; recordIds: string[]; records: Array<{id: string; record: any}>; version: number}>} Initial state of the collection including records data structured as {id, record}.
+   * @returns {Promise<{success: boolean; ids: string[]; records: Array<{id: string; record: any}>; version: number}>} Initial state of the collection including records data structured as {id, record}.
    */
   async subscribeCollection(
     collectionId: string,
     options: {
       onDiff?: (diff: { added: any[]; removed: any[]; changed: any[]; version: number }) => void | Promise<void>;
     } = {},
-  ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {
+  ): Promise<{ success: boolean; ids: string[]; records: Array<{ id: string; record: any }>; version: number }> {
     try {
       const result = await this.command("mesh/subscribe-collection", {
         collectionId,
@@ -870,7 +870,7 @@ export class MeshClient extends EventEmitter {
 
       if (result.success) {
         this.collectionSubscriptions.set(collectionId, {
-          recordIds: new Set(result.recordIds),
+          ids: new Set(result.ids),
           version: result.version,
           onDiff: options.onDiff,
         });
@@ -891,13 +891,13 @@ export class MeshClient extends EventEmitter {
 
       return {
         success: result.success,
-        recordIds: result.recordIds || [],
+        ids: result.ids || [],
         records: result.records || [],
         version: result.version || 0,
       };
     } catch (error) {
       clientLogger.error(`Failed to subscribe to collection ${collectionId}:`, error);
-      return { success: false, recordIds: [], records: [], version: 0 };
+      return { success: false, ids: [], records: [], version: 0 };
     }
   }
 

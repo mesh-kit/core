@@ -892,26 +892,26 @@ export class MeshServer extends WebSocketServer {
       }
     });
 
-    this.exposeCommand<{ collectionId: string }, { success: boolean; recordIds: string[]; records: any[]; version: number }>(
+    this.exposeCommand<{ collectionId: string }, { success: boolean; ids: string[]; records: any[]; version: number }>(
       "mesh/subscribe-collection",
       async (ctx) => {
         const { collectionId } = ctx.payload;
         const connectionId = ctx.connection.id;
 
         if (!(await this.collectionManager.isCollectionExposed(collectionId, ctx.connection))) {
-          return { success: false, recordIds: [], records: [], version: 0 };
+          return { success: false, ids: [], records: [], version: 0 };
         }
 
         try {
-          const { recordIds, records, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection);
+          const { ids, records, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection);
 
           // records already contain the data, just format for client
           const recordsWithId = records.map((record) => ({ id: record.id, record }));
 
-          return { success: true, recordIds, records: recordsWithId, version };
+          return { success: true, ids, records: recordsWithId, version };
         } catch (e) {
           console.error(`Failed to subscribe to collection ${collectionId}:`, e);
-          return { success: false, recordIds: [], records: [], version: 0 };
+          return { success: false, ids: [], records: [], version: 0 };
         }
       },
     );
