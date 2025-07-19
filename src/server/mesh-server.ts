@@ -363,7 +363,7 @@ export class MeshServer extends WebSocketServer {
    *
    * @param {string} recordId - The ID of the record to update.
    * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
-   * @param {"replace" | "merge" | "deepMerge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
+   * @param {{ strategy?: "replace" | "merge" | "deepMerge" }} [options] - Update options: strategy defaults to "replace" which replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<void>}
    * @throws {Error} If the update fails.
    *
@@ -373,16 +373,16 @@ export class MeshServer extends WebSocketServer {
    *
    * // Merge strategy - merges with existing record
    * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
-   * await server.publishRecordUpdate("user:123", { name: "new name" }, "merge");
+   * await server.publishRecordUpdate("user:123", { name: "new name" }, { strategy: "merge" });
    * // Result: { name: "new name", age: 30, city: "NYC" }
    *
    * // Deep merge strategy - recursively merges nested objects
    * // If record currently contains: { name: "John", profile: { age: 30, city: "NYC", preferences: { theme: "dark" } } }
-   * await server.publishRecordUpdate("user:123", { profile: { age: 31 } }, "deepMerge");
+   * await server.publishRecordUpdate("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
    * // Result: { name: "John", profile: { age: 31, city: "NYC", preferences: { theme: "dark" } } }
    */
-  async publishRecordUpdate(recordId: string, newValue: any, strategy: "replace" | "merge" | "deepMerge" = "replace"): Promise<void> {
-    return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue, strategy);
+  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
+    return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue, options);
   }
 
   /**
@@ -404,28 +404,27 @@ export class MeshServer extends WebSocketServer {
   }
 
   /**
-   * Lists all records matching a pattern in Redis.
+   * Lists and processes records matching a pattern. Designed for use in collection resolvers.
+   * Returns transformed records that will be sent to subscribed clients.
    *
    * @param {string} pattern - Redis glob pattern to match record IDs against (e.g., "user:*", "post:?", "[abc]*").
-   *                          Uses Redis glob syntax, not JavaScript regex.
-   * @returns {Promise<string[]>} The matching record IDs.
+   * @param {Object} [options] - Processing options.
+   * @param {Function} [options.map] - Transform each record before sorting/slicing.
+   * @param {Function} [options.sort] - Sort function for the records.
+   * @param {Object} [options.slice] - Pagination slice.
+   * @param {number} [options.slice.start] - Start index.
+   * @param {number} [options.slice.count] - Number of records to return.
+   * @returns {Promise<any[]>} The processed records to send to clients.
    */
-  async listRecordsMatching(pattern: string): Promise<string[]>;
-  /**
-   * Finds all record keys matching a pattern, retrieves their values,
-   * and applies a mapper function to each.
-   *
-   * @template T
-   * @param {string} pattern - The glob pattern to match record IDs against.
-   * @param {(record: any) => T} mapper - A function to apply to each record.
-   * @returns {Promise<T[]>} The mapped record values.
-   */
-  async listRecordsMatching<T>(pattern: string, mapper: (record: any) => T): Promise<T[]>;
-  async listRecordsMatching<T>(pattern: string, mapper?: (record: any) => T): Promise<string[] | T[]> {
-    if (mapper) {
-      return this.collectionManager.listRecordsMatching<T>(pattern, mapper);
-    }
-    return this.collectionManager.listRecordsMatching(pattern);
+  async listRecordsMatching(
+    pattern: string,
+    options?: {
+      map?: (record: any) => any;
+      sort?: (a: any, b: any) => number;
+      slice?: { start: number; count: number };
+    },
+  ): Promise<any[]> {
+    return this.collectionManager.listRecordsMatching(pattern, options);
   }
 
   // #endregion
@@ -434,13 +433,13 @@ export class MeshServer extends WebSocketServer {
 
   /**
    * Exposes a collection pattern for client subscriptions with a resolver function
-   * that determines which record IDs belong to the collection.
+   * that determines which records belong to the collection.
    *
    * @param {ChannelPattern} pattern - The collection ID or pattern to expose.
-   * @param {(connection: Connection, collectionId: string) => Promise<string[]> | string[]} resolver -
-   *        Function that resolves which record IDs belong to the collection.
+   * @param {(connection: Connection, collectionId: string) => Promise<any[]> | any[]} resolver -
+   *        Function that resolves which records belong to the collection.
    */
-  exposeCollection(pattern: ChannelPattern, resolver: (connection: Connection, collectionId: string) => Promise<string[]> | string[]): void {
+  exposeCollection(pattern: ChannelPattern, resolver: (connection: Connection, collectionId: string) => Promise<any[]> | any[]): void {
     this.collectionManager.exposeCollection(pattern, resolver);
   }
 
@@ -478,6 +477,10 @@ export class MeshServer extends WebSocketServer {
 
   async clearRoom(roomName: string) {
     return this.roomManager.clearRoom(roomName);
+  }
+
+  async deleteRoom(roomName: string) {
+    return this.roomManager.deleteRoom(roomName);
   }
 
   async getRoomMembers(roomName: string): Promise<string[]> {
@@ -682,22 +685,25 @@ export class MeshServer extends WebSocketServer {
       }
     });
 
-    this.exposeCommand<{ metadata: any }, { success: boolean }>("mesh/set-my-connection-metadata", async (ctx) => {
-      const { metadata } = ctx.payload;
-      const connectionId = ctx.connection.id;
-      const connection = this.connectionManager.getLocalConnection(connectionId);
+    this.exposeCommand<{ metadata: any; options?: { strategy?: "replace" | "merge" | "deepMerge" } }, { success: boolean }>(
+      "mesh/set-my-connection-metadata",
+      async (ctx) => {
+        const { metadata, options } = ctx.payload;
+        const connectionId = ctx.connection.id;
+        const connection = this.connectionManager.getLocalConnection(connectionId);
 
-      if (connection) {
-        try {
-          await this.connectionManager.setMetadata(connection, metadata);
-          return { success: true };
-        } catch (error) {
+        if (connection) {
+          try {
+            await this.connectionManager.setMetadata(connection, metadata, options);
+            return { success: true };
+          } catch (error) {
+            return { success: false };
+          }
+        } else {
           return { success: false };
         }
-      } else {
-        return { success: false };
-      }
-    });
+      },
+    );
 
     this.exposeCommand<{ roomName: string }, { metadata: any }>("mesh/get-room-metadata", async (ctx) => {
       const { roomName } = ctx.payload;
@@ -736,17 +742,17 @@ export class MeshServer extends WebSocketServer {
       return this.recordSubscriptionManager.removeSubscription(recordId, connectionId);
     });
 
-    this.exposeCommand<{ recordId: string; newValue: any; strategy?: "replace" | "merge" | "deepMerge" }, { success: boolean }>(
+    this.exposeCommand<{ recordId: string; newValue: any; options?: { strategy?: "replace" | "merge" | "deepMerge" } }, { success: boolean }>(
       "mesh/publish-record-update",
       async (ctx) => {
-        const { recordId, newValue, strategy = "replace" } = ctx.payload;
+        const { recordId, newValue, options } = ctx.payload;
 
         if (!(await this.recordSubscriptionManager.isRecordWritable(recordId, ctx.connection))) {
           throw new Error(`Record "${recordId}" is not writable by this connection.`);
         }
 
         try {
-          await this.publishRecordUpdate(recordId, newValue, strategy);
+          await this.publishRecordUpdate(recordId, newValue, options);
           return { success: true };
         } catch (e: any) {
           throw new Error(`Failed to publish update for record "${recordId}": ${e.message}`);
@@ -897,19 +903,12 @@ export class MeshServer extends WebSocketServer {
         }
 
         try {
-          const { recordIds, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection);
+          const { recordIds, records, version } = await this.collectionManager.addSubscription(collectionId, connectionId, ctx.connection);
 
-          const recordsWithId = await Promise.all(
-            recordIds.map(async (id) => {
-              const record = await this.recordManager.getRecord(id);
-              return record ? { id, record } : null;
-            }),
-          );
+          // records already contain the data, just format for client
+          const recordsWithId = records.map((record) => ({ id: record.id, record }));
 
-          // filter out any null results (where record fetch failed)
-          const validRecordsWithId = recordsWithId.filter((item): item is { id: string; record: any } => item !== null);
-
-          return { success: true, recordIds, records: validRecordsWithId, version };
+          return { success: true, recordIds, records: recordsWithId, version };
         } catch (e) {
           console.error(`Failed to subscribe to collection ${collectionId}:`, e);
           return { success: false, recordIds: [], records: [], version: 0 };

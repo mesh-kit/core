@@ -6,7 +6,7 @@ export class CollectionManager {
   private redis: Redis;
   private exposedCollections: Array<{
     pattern: ChannelPattern;
-    resolver: (connection: Connection, collectionId: string) => Promise<string[]> | string[];
+    resolver: (connection: Connection, collectionId: string) => Promise<any[]> | any[];
   }> = [];
   private collectionSubscriptions: Map<
     string, // collectionId
@@ -21,13 +21,13 @@ export class CollectionManager {
 
   /**
    * Exposes a collection pattern for client subscriptions with a resolver function
-   * that determines which record IDs belong to the collection.
+   * that determines which records belong to the collection.
    *
    * @param {ChannelPattern} pattern - The collection ID or pattern to expose.
-   * @param {(connection: Connection, collectionId: string) => Promise<string[]> | string[]} resolver -
-   *        Function that resolves which record IDs belong to the collection.
+   * @param {(connection: Connection, collectionId: string) => Promise<any[]> | any[]} resolver -
+   *        Function that resolves which records belong to the collection.
    */
-  exposeCollection(pattern: ChannelPattern, resolver: (connection: Connection, collectionId: string) => Promise<string[]> | string[]): void {
+  exposeCollection(pattern: ChannelPattern, resolver: (connection: Connection, collectionId: string) => Promise<any[]> | any[]): void {
     this.exposedCollections.push({ pattern, resolver });
   }
 
@@ -47,14 +47,14 @@ export class CollectionManager {
   }
 
   /**
-   * Resolves a collection to its current set of record IDs.
+   * Resolves a collection to its current set of records.
    *
    * @param {string} collectionId - The collection ID to resolve.
    * @param {Connection} connection - The connection requesting the resolution.
-   * @returns {Promise<string[]>} The record IDs that belong to the collection.
+   * @returns {Promise<any[]>} The records that belong to the collection.
    * @throws {Error} If the collection is not exposed or the resolver fails.
    */
-  async resolveCollection(collectionId: string, connection: Connection): Promise<string[]> {
+  async resolveCollection(collectionId: string, connection: Connection): Promise<any[]> {
     const matchedPattern = this.exposedCollections.find((entry) =>
       typeof entry.pattern === "string" ? entry.pattern === collectionId : entry.pattern.test(collectionId),
     );
@@ -77,21 +77,22 @@ export class CollectionManager {
    * @param {string} collectionId - The collection ID to subscribe to.
    * @param {string} connectionId - The connection ID subscribing.
    * @param {Connection} connection - The connection object.
-   * @returns {Promise<{ recordIds: string[]; version: number }>} The initial state of the collection.
+   * @returns {Promise<{ recordIds: string[]; records: any[]; version: number }>} The initial state of the collection.
    */
-  async addSubscription(collectionId: string, connectionId: string, connection: Connection): Promise<{ recordIds: string[]; version: number }> {
+  async addSubscription(collectionId: string, connectionId: string, connection: Connection): Promise<{ recordIds: string[]; records: any[]; version: number }> {
     if (!this.collectionSubscriptions.has(collectionId)) {
       this.collectionSubscriptions.set(collectionId, new Map());
     }
 
-    const recordIds = await this.resolveCollection(collectionId, connection);
+    const records = await this.resolveCollection(collectionId, connection);
+    const recordIds = records.map((record) => record.id); // extract IDs for tracking
     const version = 1;
 
     this.collectionSubscriptions.get(collectionId)!.set(connectionId, { version });
 
     await this.redis.set(`mesh:collection:${collectionId}:${connectionId}`, JSON.stringify(recordIds));
 
-    return { recordIds, version };
+    return { recordIds, records, version };
   }
 
   /**
@@ -124,29 +125,27 @@ export class CollectionManager {
    * @param {string} collectionId - The collection ID to refresh.
    * @param {string} connectionId - The connection ID to refresh for.
    * @param {Connection} connection - The connection object.
-   * @returns {Promise<{ added: string[]; removed: string[]; version: number }>}
+   * @returns {Promise<{ added: any[]; removed: any[]; version: number }>}
    */
-  async refreshCollection(
-    collectionId: string,
-    connectionId: string,
-    connection: Connection,
-  ): Promise<{ added: string[]; removed: string[]; version: number }> {
+  async refreshCollection(collectionId: string, connectionId: string, connection: Connection): Promise<{ added: any[]; removed: any[]; version: number }> {
     const collectionSubs = this.collectionSubscriptions.get(collectionId);
     if (!collectionSubs || !collectionSubs.has(connectionId)) {
       throw new Error(`Connection ${connectionId} is not subscribed to collection ${collectionId}`);
     }
 
     const { version } = collectionSubs.get(connectionId)!;
-    const newRecordIds = await this.resolveCollection(collectionId, connection);
+    const newRecords = await this.resolveCollection(collectionId, connection);
+    const newRecordIds = newRecords.map((record) => record.id); // extract IDs from records
 
     // get the previous record IDs for this connection
     const previousRecordIdsKey = `mesh:collection:${collectionId}:${connectionId}`;
     const previousRecordIdsStr = await this.redis.get(previousRecordIdsKey);
     const previousRecordIds = previousRecordIdsStr ? JSON.parse(previousRecordIdsStr) : [];
 
-    // compute the diff
-    const added = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
-    const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id));
+    // compute the diff - added gets full records, removed gets just IDs
+    const addedIds = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
+    const added = newRecords.filter((record) => addedIds.includes(record.id)); // full records for added
+    const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id)); // IDs for removed
 
     // update the version if there are changes
     let newVersion = version;
@@ -215,42 +214,67 @@ export class CollectionManager {
   }
 
   /**
-   * Lists all records matching a pattern in Redis.
+   * Lists and processes records matching a pattern. Designed for use in collection resolvers.
+   * Returns transformed records (not record IDs) that will be sent to subscribed clients.
    *
    * @param {string} pattern - The pattern to match record IDs against.
-   * @returns {Promise<string[]>} The matching record IDs.
+   * @param {Object} [options] - Processing options.
+   * @param {Function} [options.map] - Transform each record before sorting/slicing.
+   * @param {Function} [options.sort] - Sort function for the records.
+   * @param {Object} [options.slice] - Pagination slice.
+   * @param {number} [options.slice.start] - Start index.
+   * @param {number} [options.slice.count] - Number of records to return.
+   * @returns {Promise<any[]>} The processed records to send to clients.
    */
-  async listRecordsMatching(pattern: string): Promise<string[]>;
-  async listRecordsMatching<T>(pattern: string, mapper: (record: any) => T): Promise<T[]>;
-  async listRecordsMatching<T>(pattern: string, mapper?: (record: any) => T): Promise<string[] | T[]> {
+  async listRecordsMatching(
+    pattern: string,
+    options?: {
+      map?: (record: any) => any;
+      sort?: (a: any, b: any) => number;
+      slice?: { start: number; count: number };
+    },
+  ): Promise<any[]> {
     try {
       const recordKeyPrefix = "mesh:record:";
       const keys = await this.redis.keys(`${recordKeyPrefix}${pattern}`);
-      const cleanRecordIds = keys.map((key) => key.substring(recordKeyPrefix.length));
-
-      if (!mapper) {
-        return cleanRecordIds;
-      }
 
       if (keys.length === 0) {
         return [];
       }
 
       const records = await this.redis.mget(keys);
-      const mappedValues = records
-        .map((val) => {
+      const cleanRecordIds = keys.map((key) => key.substring(recordKeyPrefix.length));
+
+      let processedRecords = records
+        .map((val, index) => {
           if (val === null) return null;
           try {
             const parsed = JSON.parse(val);
-            return mapper(parsed);
+            // ensure record id matches the key (don't overwrite if already correct)
+            const recordId = cleanRecordIds[index];
+            return parsed.id === recordId ? parsed : { ...parsed, id: recordId };
           } catch (e: any) {
-            this.emitError(new Error(`Failed to parse record for mapping: ${val} - ${e.message}`));
+            this.emitError(new Error(`Failed to parse record for processing: ${val} - ${e.message}`));
             return null;
           }
         })
-        .filter((v): v is T => v !== null);
+        .filter((record): record is any => record !== null);
 
-      return mappedValues;
+      // apply transformations: map -> sort -> slice
+      if (options?.map) {
+        processedRecords = processedRecords.map(options.map);
+      }
+
+      if (options?.sort) {
+        processedRecords.sort(options.sort);
+      }
+
+      if (options?.slice) {
+        const { start, count } = options.slice;
+        processedRecords = processedRecords.slice(start, start + count);
+      }
+
+      return processedRecords;
     } catch (error: any) {
       this.emitError(new Error(`Failed to list records matching "${pattern}": ${error.message}`));
       return [];

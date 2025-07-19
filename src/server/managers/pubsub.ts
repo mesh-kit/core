@@ -291,13 +291,26 @@ export class PubSubManager {
           continue;
         }
 
-        const newRecordIds = await this.collectionManager.resolveCollection(collectionId, connection);
+        const newRecords = await this.collectionManager.resolveCollection(collectionId, connection);
+        const newRecordIds = newRecords.map((record) => record.id); // extract IDs from records
         const previousRecordIdsKey = `mesh:collection:${collectionId}:${connectionId}`;
         const previousRecordIdsStr = await this.pubClient.get(previousRecordIdsKey);
         const previousRecordIds = previousRecordIdsStr ? JSON.parse(previousRecordIdsStr) : [];
 
-        const added = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
-        const removed = previousRecordIds.filter((id: string) => !newRecordIds.includes(id));
+        const addedIds = newRecordIds.filter((id: string) => !previousRecordIds.includes(id));
+        const added = newRecords.filter((record) => addedIds.includes(record.id)); // full records for added
+        const removedIds = previousRecordIds.filter((id: string) => !newRecordIds.includes(id));
+
+        // for removed items, try to get full records if they still exist, otherwise use IDs
+        const removed = [];
+        for (const removedId of removedIds) {
+          try {
+            const record = await this.recordManager.getRecord(removedId);
+            removed.push(record || { id: removedId }); // use record if exists, otherwise just ID object
+          } catch {
+            removed.push({ id: removedId }); // fallback to ID object
+          }
+        }
 
         const deletedRecords = [];
         for (const recordId of changedRecordIds) {
@@ -321,6 +334,7 @@ export class PubSubManager {
           });
         }
 
+        // send record updates for changed records that are still in the collection
         for (const recordId of changedRecordIds) {
           if (newRecordIds.includes(recordId)) {
             try {
@@ -332,7 +346,6 @@ export class PubSubManager {
                 });
               }
             } catch (recordError) {
-              // likely deleted
               serverLogger.info(`Record ${recordId} not found during collection update (likely deleted).`);
             }
           }

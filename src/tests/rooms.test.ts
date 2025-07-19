@@ -74,7 +74,7 @@ describe("MeshServer", () => {
     expect(meta1).toEqual(initialMeta1);
 
     const updateMeta1 = { topic: "Updated Topic", settings: { max: 10 } };
-    await server.roomManager.updateMetadata(room1, updateMeta1);
+    await server.roomManager.setMetadata(room1, updateMeta1, { strategy: "merge" });
 
     meta1 = await server.roomManager.getMetadata(room1);
     expect(meta1).toEqual({ ...initialMeta1, ...updateMeta1 });
@@ -92,7 +92,12 @@ describe("MeshServer", () => {
       [room2]: initialMeta2,
     });
 
+    // clearRoom preserves metadata
     await server.roomManager.clearRoom(room1);
+    expect(await server.roomManager.getMetadata(room1)).toEqual({ ...initialMeta1, ...updateMeta1 });
+
+    // deleteRoom removes metadata
+    await server.roomManager.deleteRoom(room1);
     expect(await server.roomManager.getMetadata(room1)).toBeNull();
   });
 

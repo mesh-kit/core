@@ -100,7 +100,7 @@ export class MeshClient extends EventEmitter {
       recordIds: Set<string>;
       version: number;
       onUpdate?: (update: { id: string; record?: any; version: number; deleted?: boolean }) => void | Promise<void>;
-      onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
+      onDiff?: (diff: { added: any[]; removed: any[]; version: number }) => void | Promise<void>;
     }
   > = new Map();
 
@@ -633,11 +633,11 @@ export class MeshClient extends EventEmitter {
    *
    * @param {Object} payload - The collection diff payload.
    * @param {string} payload.collectionId - The ID of the collection.
-   * @param {string[]} payload.added - Array of record IDs added to the collection.
-   * @param {string[]} payload.removed - Array of record IDs removed from the collection.
+   * @param {any[]} payload.added - Array of record objects added to the collection.
+   * @param {any[]} payload.removed - Array of record objects removed from the collection.
    * @param {number} payload.version - The new version of the collection.
    */
-  private async handleCollectionDiff(payload: { collectionId: string; added: string[]; removed: string[]; version: number }) {
+  private async handleCollectionDiff(payload: { collectionId: string; added: any[]; removed: any[]; version: number }) {
     const { collectionId, added, removed, version } = payload;
 
     const subscription = this.collectionSubscriptions.get(collectionId);
@@ -668,12 +668,12 @@ export class MeshClient extends EventEmitter {
     subscription.version = version;
 
     // update the local record IDs set
-    for (const recordId of added) {
-      subscription.recordIds.add(recordId);
+    for (const record of added) {
+      subscription.recordIds.add(record.id);
     }
 
-    for (const recordId of removed) {
-      subscription.recordIds.delete(recordId);
+    for (const record of removed) {
+      subscription.recordIds.delete(record.id);
     }
 
     // notify the diff callback
@@ -852,7 +852,7 @@ export class MeshClient extends EventEmitter {
     collectionId: string,
     options: {
       onUpdate?: (update: { id: string; record?: any; version: number; deleted?: boolean }) => void | Promise<void>;
-      onDiff?: (diff: { added: string[]; removed: string[]; version: number }) => void | Promise<void>;
+      onDiff?: (diff: { added: any[]; removed: any[]; version: number }) => void | Promise<void>;
     } = {},
   ): Promise<{ success: boolean; recordIds: string[]; records: Array<{ id: string; record: any }>; version: number }> {
     try {
@@ -871,7 +871,7 @@ export class MeshClient extends EventEmitter {
         if (options.onDiff) {
           try {
             await options.onDiff({
-              added: result.recordIds,
+              added: result.records.map(r => r.record), // use full records instead of just IDs
               removed: [],
               version: result.version,
             });
@@ -999,7 +999,7 @@ export class MeshClient extends EventEmitter {
       const result = await this.command("mesh/publish-record-update", {
         recordId,
         newValue,
-        strategy: options?.strategy || "replace",
+        options,
       });
       return result.success === true;
     } catch (error) {
@@ -1218,13 +1218,15 @@ export class MeshClient extends EventEmitter {
   /**
    * Sets metadata for the current connection.
    *
-   * @param {any} metadata - The metadata to set for the current connection.
+   * @param {any} metadata - The metadata to set for the current connection, or partial metadata when using merge strategy.
+   * @param {{ strategy?: "replace" | "merge" | "deepMerge" }} [options] - Update strategy: "replace" (default) replaces the entire metadata, "merge" merges with existing metadata properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<boolean>} A promise that resolves to true if the metadata was successfully set, false otherwise.
    */
-  async setConnectionMetadata(metadata: any): Promise<boolean> {
+  async setConnectionMetadata(metadata: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<boolean> {
     try {
       const result = await this.command("mesh/set-my-connection-metadata", {
         metadata,
+        options,
       });
       return result.success;
     } catch (error) {

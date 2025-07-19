@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import type { Connection } from "../connection";
+import { deepMerge, isObject } from "../../common/deep-merge";
 
 export class RoomManager {
   private redis: Redis;
@@ -119,15 +120,32 @@ export class RoomManager {
   }
 
   /**
-   * Removes all associations and metadata for the specified room. This includes
-   * removing the room from all connected clients, deleting the room's key, and
-   * deleting any associated metadata in Redis.
+   * Removes all connections from the specified room but preserves room metadata.
+   * This clears the room occupants without destroying the room's configuration.
    *
-   * @param {string} roomName - The name of the room to be cleared.
-   * @returns {Promise<void>} A promise that resolves when the room and its metadata have been cleared.
+   * @param {string} roomName - The name of the room to be cleared of occupants.
+   * @returns {Promise<void>} A promise that resolves when all occupants have been removed from the room.
    * @throws {Error} If an error occurs while interacting with Redis, the promise will be rejected with the error.
    */
   async clearRoom(roomName: string) {
+    const connectionIds = await this.getRoomConnectionIds(roomName);
+    const pipeline = this.redis.pipeline();
+    for (const connectionId of connectionIds) {
+      pipeline.srem(this.connectionsRoomKey(connectionId), roomName);
+    }
+    pipeline.del(this.roomKey(roomName));
+    await pipeline.exec();
+  }
+
+  /**
+   * Completely deletes the specified room, removing all occupants and destroying
+   * all associated room metadata. This permanently removes the room from the system.
+   *
+   * @param {string} roomName - The name of the room to be completely deleted.
+   * @returns {Promise<void>} A promise that resolves when the room has been completely deleted.
+   * @throws {Error} If an error occurs while interacting with Redis, the promise will be rejected with the error.
+   */
+  async deleteRoom(roomName: string) {
     const connectionIds = await this.getRoomConnectionIds(roomName);
     const pipeline = this.redis.pipeline();
     for (const connectionId of connectionIds) {
@@ -161,12 +179,36 @@ export class RoomManager {
    * object in Redis under the room's metadata key.
    *
    * @param {string} roomName - The unique name of the room whose metadata is being set.
-   * @param {any} metadata - The metadata object to associate with the room. This object will be stringified before storage.
+   * @param {any} metadata - The metadata object to associate with the room, or partial metadata when using merge strategy.
+   * @param {{ strategy?: "replace" | "merge" | "deepMerge" }} [options] - Update options: strategy defaults to "replace" which replaces the entire metadata, "merge" merges with existing metadata properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<void>} A promise that resolves when the metadata has been successfully set.
    * @throws {Error} If an error occurs while storing metadata in Redis, the promise will be rejected with the error.
    */
-  async setMetadata(roomName: string, metadata: any): Promise<void> {
-    await this.redis.hset(this.roomMetadataKey(roomName), "data", JSON.stringify(metadata));
+  async setMetadata(roomName: string, metadata: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
+    let finalMetadata: any;
+    const strategy = options?.strategy || "replace";
+
+    if (strategy === "replace") {
+      finalMetadata = metadata;
+    } else {
+      const existingMetadata = await this.getMetadata(roomName);
+
+      if (strategy === "merge") {
+        if (isObject(existingMetadata) && isObject(metadata)) {
+          finalMetadata = { ...existingMetadata, ...metadata };
+        } else {
+          finalMetadata = metadata;
+        }
+      } else if (strategy === "deepMerge") {
+        if (isObject(existingMetadata) && isObject(metadata)) {
+          finalMetadata = deepMerge(existingMetadata, metadata);
+        } else {
+          finalMetadata = metadata;
+        }
+      }
+    }
+
+    await this.redis.hset(this.roomMetadataKey(roomName), "data", JSON.stringify(finalMetadata));
   }
 
   /**
@@ -181,22 +223,6 @@ export class RoomManager {
   async getMetadata(roomName: string): Promise<any | null> {
     const data = await this.redis.hget(this.roomMetadataKey(roomName), "data");
     return data ? JSON.parse(data) : null;
-  }
-
-  /**
-   * Updates the metadata for the specified room by merging the current metadata
-   * with the provided partial update object. The merged result is then saved as
-   * the new metadata for the room.
-   *
-   * @param {string} roomName - The name of the room whose metadata is to be updated.
-   * @param {any} partialUpdate - An object containing the fields to update within the room's metadata.
-   * @returns {Promise<void>} A promise that resolves when the metadata update is complete.
-   * @throws {Error} If retrieving or setting metadata fails, the promise will be rejected with the error.
-   */
-  async updateMetadata(roomName: string, partialUpdate: any): Promise<void> {
-    const currentMetadata = (await this.getMetadata(roomName)) || {};
-    const updatedMetadata = { ...currentMetadata, ...partialUpdate };
-    await this.setMetadata(roomName, updatedMetadata);
   }
 
   /**

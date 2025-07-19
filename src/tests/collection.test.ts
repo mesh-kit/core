@@ -84,7 +84,7 @@ describe("Collection Subscriptions", () => {
 
     // verify diff received
     expect(diffs.length).toBe(2); // initial + update
-    expect(diffs[1]!.added).toContain("task:4");
+    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4" })]));
     expect(diffs[1]!.removed).toEqual([]);
     expect(diffs[1]!.version).toBe(2);
 
@@ -102,12 +102,12 @@ describe("Collection Subscriptions", () => {
     // verify diff was received
     expect(diffs.length).toBeGreaterThan(1);
     // the second diff should (still) be the addition of task:4
-    expect(diffs[1]!.added).toContain("task:4");
+    expect(diffs[1]!.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:4" })]));
     expect(diffs[1]!.removed).toEqual([]);
 
     // the third diff should be the removal of task:2
     expect(diffs[2]!.added).toEqual([]);
-    expect(diffs[2]!.removed).toContain("task:2");
+    expect(diffs[2]!.removed).toEqual(expect.arrayContaining([expect.objectContaining({ id: "task:2" })]));
 
     const unsubResult = await client.unsubscribeCollection("collection:all-tasks");
     expect(unsubResult).toBe(true);
@@ -155,7 +155,7 @@ describe("Collection Subscriptions", () => {
     // onDiff was called once with the initial state
     expect(mockOnDiff).toHaveBeenCalledTimes(1);
     expect(mockOnDiff).toHaveBeenCalledWith({
-      added: expect.arrayContaining([initialRecord1.id, initialRecord2.id]),
+      added: expect.arrayContaining([expect.objectContaining({ id: initialRecord1.id }), expect.objectContaining({ id: initialRecord2.id })]),
       removed: [],
       version: 1,
     });
@@ -210,7 +210,7 @@ describe("Collection Subscriptions", () => {
 
     server.exposeRecord("user:*:task:*");
 
-    server.exposeCollection(/^collection:user:(\d+):tasks$/, async (connection, collectionId) => {
+    server.exposeCollection(/^collection:user:\d+:tasks$/, async (connection, collectionId) => {
       const userId = collectionId.split(":")[2];
       return await server.listRecordsMatching(`user:${userId}:task:*`);
     });
@@ -262,7 +262,7 @@ describe("Collection Subscriptions", () => {
       expect(recordExists).toBe(1);
     } else {
       // otherwise, we expect the added array to contain the new record
-      expect(refreshResult.added).toContain("project:1:task:2");
+      expect(refreshResult.added).toEqual(expect.arrayContaining([expect.objectContaining({ id: "project:1:task:2" })]));
       expect(refreshResult.removed).toEqual([]);
       expect(refreshResult.version).toBe(2);
     }
@@ -270,19 +270,70 @@ describe("Collection Subscriptions", () => {
     await client.unsubscribeCollection("collection:project:1:tasks");
   });
 
-  test("should list and map records matching a pattern", async () => {
-    await server.publishRecordUpdate("map:task:1", { id: 1, title: "Task 1", completed: false });
-    await server.publishRecordUpdate("map:task:2", { id: 2, title: "Task 2", completed: true });
-    await server.publishRecordUpdate("map:task:3", { id: 3, title: "Task 3", completed: false });
+  test("should support paginated collections using collection names", async () => {
+    const records = Array.from({ length: 25 }, (_, i) => ({
+      id: `item:${i + 1}`,
+      value: i + 1,
+      created_at: new Date(Date.now() + i * 1000).toISOString(), // each record 1 second apart
+    }));
 
-    const recordIds = await server.listRecordsMatching("map:task:*");
-    expect(recordIds.sort()).toEqual(["map:task:1", "map:task:2", "map:task:3"]);
+    // publish all records
+    for (const record of records) {
+      await server.publishRecordUpdate(record.id, record);
+    }
 
-    const titles = await server.listRecordsMatching("map:task:*", (rec) => rec.title);
-    expect(titles.sort()).toEqual(["Task 1", "Task 2", "Task 3"]);
+    server.exposeCollection(/^items:page:\d+$/, async (conn, collectionId) => {
+      const pageNum = parseInt(String(collectionId.split(":")[2]));
+      const pageSize = 10;
 
-    const completedTasks = await server.listRecordsMatching("map:task:*", (rec) => (rec.completed ? rec.id : null));
-    expect(completedTasks).toEqual([2]);
+      return await server.listRecordsMatching("item:*", {
+        map: (record) => ({
+          id: record.id,
+          value: record.value,
+          created_at: record.created_at,
+        }),
+        sort: (a, b) => a.value - b.value,
+        slice: { start: (pageNum - 1) * pageSize, count: pageSize },
+      });
+    });
+
+    // page 1 (items 1-10)
+    const page1Result = await client.subscribeCollection("items:page:1");
+    expect(page1Result.success).toBe(true);
+    expect(page1Result.recordIds.length).toBe(10);
+    expect(page1Result.recordIds).toContain("item:1");
+    expect(page1Result.recordIds).toContain("item:10");
+    expect(page1Result.recordIds).not.toContain("item:11");
+
+    await client.unsubscribeCollection("items:page:1");
+
+    // page 2 (items 11-20)
+    const page2Result = await client.subscribeCollection("items:page:2");
+    expect(page2Result.success).toBe(true);
+    expect(page2Result.recordIds.length).toBe(10);
+    expect(page2Result.recordIds).toContain("item:11");
+    expect(page2Result.recordIds).toContain("item:20");
+    expect(page2Result.recordIds).not.toContain("item:10");
+    expect(page2Result.recordIds).not.toContain("item:21");
+
+    await client.unsubscribeCollection("items:page:2");
+
+    // page 3 (items 21-25, partial page)
+    const page3Result = await client.subscribeCollection("items:page:3");
+    expect(page3Result.success).toBe(true);
+    expect(page3Result.recordIds.length).toBe(5);
+    expect(page3Result.recordIds).toContain("item:21");
+    expect(page3Result.recordIds).toContain("item:25");
+    expect(page3Result.recordIds).not.toContain("item:20");
+
+    await client.unsubscribeCollection("items:page:3");
+
+    // page 4 (empty)
+    const page4Result = await client.subscribeCollection("items:page:4");
+    expect(page4Result.success).toBe(true);
+    expect(page4Result.recordIds.length).toBe(0);
+
+    await client.unsubscribeCollection("items:page:4");
   });
 });
 
@@ -350,10 +401,18 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
 
     // verify both clients received the diff (expecting exactly 1 call since subscription)
     expect(onDiffA).toHaveBeenCalledTimes(1);
-    expect(onDiffA).toHaveBeenCalledWith({ added: ["task:multi:1"], removed: [], version: 2 });
+    expect(onDiffA).toHaveBeenCalledWith({
+      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      removed: [],
+      version: 2,
+    });
 
     expect(onDiffB).toHaveBeenCalledTimes(1);
-    expect(onDiffB).toHaveBeenCalledWith({ added: ["task:multi:1"], removed: [], version: 2 });
+    expect(onDiffB).toHaveBeenCalledWith({
+      added: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      removed: [],
+      version: 2,
+    });
 
     onDiffA.mockClear();
     onDiffB.mockClear();
@@ -365,10 +424,18 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
 
     // verify both clients received the removal diff (expecting exactly 1 call since last clear)
     expect(onDiffA).toHaveBeenCalledTimes(1);
-    expect(onDiffA).toHaveBeenCalledWith({ added: [], removed: ["task:multi:1"], version: 3 });
+    expect(onDiffA).toHaveBeenCalledWith({
+      added: [],
+      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      version: 3,
+    });
 
     expect(onDiffB).toHaveBeenCalledTimes(1);
-    expect(onDiffB).toHaveBeenCalledWith({ added: [], removed: ["task:multi:1"], version: 3 });
+    expect(onDiffB).toHaveBeenCalledWith({
+      added: [],
+      removed: expect.arrayContaining([expect.objectContaining({ id: "task:multi:1" })]),
+      version: 3,
+    });
 
     await clientA.unsubscribeCollection("collection:multi-tasks");
     await clientB.unsubscribeCollection("collection:multi-tasks");

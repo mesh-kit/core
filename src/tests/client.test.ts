@@ -301,6 +301,79 @@ describe("MeshClient", () => {
     expect(retrievedMetadata).toEqual({});
   });
 
+  test("client can set metadata with replace strategy (default)", async () => {
+    await client.connect();
+
+    const initialMetadata = { user: "test-user", status: "online", preferences: { theme: "dark", lang: "en" } };
+    await client.setConnectionMetadata(initialMetadata);
+
+    const newMetadata = { user: "updated-user", role: "admin" };
+    const success = await client.setConnectionMetadata(newMetadata, { strategy: "replace" });
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual(newMetadata);
+  });
+
+  test("client can set metadata with merge strategy", async () => {
+    await client.connect();
+
+    const initialMetadata = { user: "test-user", status: "online", preferences: { theme: "dark", lang: "en" } };
+    await client.setConnectionMetadata(initialMetadata);
+
+    const updateMetadata = { status: "away", role: "admin" };
+    const success = await client.setConnectionMetadata(updateMetadata, { strategy: "merge" });
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual({
+      user: "test-user",
+      status: "away",
+      role: "admin",
+      preferences: { theme: "dark", lang: "en" },
+    });
+  });
+
+  test("client can set metadata with deepMerge strategy", async () => {
+    await client.connect();
+
+    const initialMetadata = {
+      user: "test-user",
+      status: "online",
+      preferences: { theme: "dark", lang: "en", notifications: { email: true } },
+    };
+    await client.setConnectionMetadata(initialMetadata);
+
+    const updateMetadata = {
+      status: "away",
+      preferences: { theme: "light", notifications: { push: false } },
+    };
+    const success = await client.setConnectionMetadata(updateMetadata, { strategy: "deepMerge" });
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual({
+      user: "test-user",
+      status: "away",
+      preferences: {
+        theme: "light",
+        lang: "en",
+        notifications: { email: true, push: false },
+      },
+    });
+  });
+
+  test("client merge strategy handles non-object metadata gracefully", async () => {
+    await client.connect();
+
+    await client.setConnectionMetadata("initial-string");
+    const success = await client.setConnectionMetadata({ user: "test-user" }, { strategy: "merge" });
+    expect(success).toBe(true);
+
+    const retrievedMetadata = await client.getConnectionMetadata();
+    expect(retrievedMetadata).toEqual({ user: "test-user" });
+  });
+
   test("helper methods register event listeners correctly", async () => {
     const connectSpy = vi.fn();
     const disconnectSpy = vi.fn();

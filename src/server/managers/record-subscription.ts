@@ -175,12 +175,12 @@ export class RecordSubscriptionManager {
    *
    * @param {string} recordId - The ID of the record to update.
    * @param {any} newValue - The new value for the record, or partial value when using merge strategy.
-   * @param {"replace" | "merge" | "deepMerge"} [strategy="replace"] - Update strategy: "replace" (default) replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
+   * @param {{ strategy?: "replace" | "merge" | "deepMerge" }} [options] - Update options: strategy defaults to "replace" which replaces the entire record, "merge" merges with existing object properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<void>}
    * @throws {Error} If the update fails.
    */
-  async publishRecordUpdate(recordId: string, newValue: any, strategy: "replace" | "merge" | "deepMerge" = "replace"): Promise<void> {
-    const updateResult = await this.recordManager.publishUpdate(recordId, newValue, strategy);
+  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
+    const updateResult = await this.recordManager.publishUpdate(recordId, newValue, options?.strategy || "replace");
 
     if (!updateResult) {
       return;

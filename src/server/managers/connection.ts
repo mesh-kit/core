@@ -1,6 +1,7 @@
 import type Redis from "ioredis";
 import type { Connection } from "../connection";
 import type { RoomManager } from "./room";
+import { deepMerge, isObject } from "../../common/deep-merge";
 
 const CONNECTIONS_HASH_KEY = "mesh:connections";
 const INSTANCE_CONNECTIONS_KEY_PREFIX = "mesh:connections:";
@@ -82,13 +83,37 @@ export class ConnectionManager {
    * Serializes the metadata as a JSON string and stores it under the connection's ID.
    *
    * @param {Connection} connection - The connection object whose metadata is being set.
-   * @param {any} metadata - The metadata to associate with the connection.
+   * @param {any} metadata - The metadata to associate with the connection, or partial metadata when using merge strategy.
+   * @param {{ strategy?: "replace" | "merge" | "deepMerge" }} [options] - Update options: strategy defaults to "replace" which replaces the entire metadata, "merge" merges with existing metadata properties, "deepMerge" recursively merges nested objects.
    * @returns {Promise<void>} A promise that resolves when the metadata has been successfully set.
    * @throws {Error} If an error occurs while executing the Redis pipeline.
    */
-  async setMetadata(connection: Connection, metadata: any) {
+  async setMetadata(connection: Connection, metadata: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }) {
+    let finalMetadata: any;
+    const strategy = options?.strategy || "replace";
+
+    if (strategy === "replace") {
+      finalMetadata = metadata;
+    } else {
+      const existingMetadata = await this.getMetadata(connection);
+
+      if (strategy === "merge") {
+        if (isObject(existingMetadata) && isObject(metadata)) {
+          finalMetadata = { ...existingMetadata, ...metadata };
+        } else {
+          finalMetadata = metadata;
+        }
+      } else if (strategy === "deepMerge") {
+        if (isObject(existingMetadata) && isObject(metadata)) {
+          finalMetadata = deepMerge(existingMetadata, metadata);
+        } else {
+          finalMetadata = metadata;
+        }
+      }
+    }
+
     const pipeline = this.redis.pipeline();
-    pipeline.hset(CONNECTIONS_HASH_KEY, connection.id, JSON.stringify(metadata));
+    pipeline.hset(CONNECTIONS_HASH_KEY, connection.id, JSON.stringify(finalMetadata));
     await pipeline.exec();
   }
 
