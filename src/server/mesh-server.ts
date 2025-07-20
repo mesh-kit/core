@@ -299,8 +299,8 @@ export class MeshServer extends WebSocketServer {
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
    * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `lpush`, `ltrim`, `publish`) fail.
    */
-  async publishToChannel(channel: string, message: any, history: number = 0): Promise<void> {
-    return this.channelManager.publishToChannel(channel, message, history, this.instanceId);
+  async writeChannel(channel: string, message: any, history: number = 0): Promise<void> {
+    return this.channelManager.writeChannel(channel, message, history, this.instanceId);
   }
 
   /**

@@ -72,7 +72,7 @@ describe("Redis Channel Subscription", () => {
       receivedMessage = message;
     });
 
-    await server.publishToChannel("test:channel", "Hello, Redis!");
+    await server.writeChannel("test:channel", "Hello, Redis!");
 
     await new Promise<void>((resolve) => {
       const interval = setInterval(() => {
@@ -101,7 +101,7 @@ describe("Redis Channel Subscription", () => {
       messageCount++;
     });
 
-    await server.publishToChannel("test:channel", "Message 1");
+    await server.writeChannel("test:channel", "Message 1");
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100);
@@ -110,7 +110,7 @@ describe("Redis Channel Subscription", () => {
     const unsubResult = await client1.unsubscribeChannel("test:channel");
     expect(unsubResult).toBe(true);
 
-    await server.publishToChannel("test:channel", "Message 2");
+    await server.writeChannel("test:channel", "Message 2");
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100);
@@ -134,7 +134,7 @@ describe("Redis Channel Subscription", () => {
       client2Received = message;
     });
 
-    await server.publishToChannel("test:channel", "Broadcast message");
+    await server.writeChannel("test:channel", "Broadcast message");
 
     await new Promise<void>((resolve) => {
       const interval = setInterval(() => {
@@ -169,8 +169,8 @@ describe("Redis Channel Subscription", () => {
       channel2Messages.push(message);
     });
 
-    await server.publishToChannel("test:channel", "Message for channel 1");
-    await server.publishToChannel("test:channel2", "Message for channel 2");
+    await server.writeChannel("test:channel", "Message for channel 1");
+    await server.writeChannel("test:channel2", "Message for channel 2");
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 100);
@@ -237,11 +237,11 @@ describe("Redis Channel Subscription", () => {
     await client1.connect();
 
     const historySize = 10;
-    await server.publishToChannel("test:channel", "History message 1", historySize);
-    await server.publishToChannel("test:channel", "History message 2", historySize);
-    await server.publishToChannel("test:channel", "History message 3", historySize);
-    await server.publishToChannel("test:channel", "History message 4", historySize);
-    await server.publishToChannel("test:channel", "History message 5", historySize);
+    await server.writeChannel("test:channel", "History message 1", historySize);
+    await server.writeChannel("test:channel", "History message 2", historySize);
+    await server.writeChannel("test:channel", "History message 3", historySize);
+    await server.writeChannel("test:channel", "History message 4", historySize);
+    await server.writeChannel("test:channel", "History message 5", historySize);
 
     const receivedMessages: string[] = [];
 
@@ -275,10 +275,10 @@ describe("Redis Channel Subscription", () => {
 
     const historyLimit = 3;
 
-    await server.publishToChannel("test:channel", "Message 1", historyLimit);
-    await server.publishToChannel("test:channel", "Message 2", historyLimit);
-    await server.publishToChannel("test:channel", "Message 3", historyLimit);
-    await server.publishToChannel("test:channel", "Message 4", historyLimit);
+    await server.writeChannel("test:channel", "Message 1", historyLimit);
+    await server.writeChannel("test:channel", "Message 2", historyLimit);
+    await server.writeChannel("test:channel", "Message 3", historyLimit);
+    await server.writeChannel("test:channel", "Message 4", historyLimit);
 
     const { history } = await client1.subscribeChannel("test:channel", () => {}, { historyLimit });
 

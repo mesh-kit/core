@@ -88,7 +88,7 @@ export class ChannelManager {
    * @returns {Promise<void>} A Promise that resolves once the message has been published and, if applicable, the history has been updated.
    * @throws {Error} This function may throw an error if the underlying `pubClient` operations (e.g., `rpush`, `ltrim`, `publish`) fail.
    */
-  async publishToChannel(channel: string, message: any, history: number = 0, instanceId: string): Promise<void> {
+  async writeChannel(channel: string, message: any, history: number = 0, instanceId: string): Promise<void> {
     const parsedHistory = parseInt(history as any, 10);
     if (!isNaN(parsedHistory) && parsedHistory > 0) {
       await this.pubClient.rpush(`mesh:history:${channel}`, message);

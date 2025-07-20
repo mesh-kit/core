@@ -76,7 +76,7 @@ describe("Resubscription after reconnect", () => {
     });
 
     // verify channel subscription is restored by sending a message
-    await server.publishToChannel("test:channel", "Test message after reconnect");
+    await server.writeChannel("test:channel", "Test message after reconnect");
 
     // verify record subscription is restored by updating the record
     await server.writeRecord("test:record", { value: "updated" });

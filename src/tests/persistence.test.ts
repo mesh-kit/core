@@ -351,7 +351,7 @@ describe("Persistence System", () => {
 
       test("publishes messages to channels", async () => {
         const message = JSON.stringify({ text: "Test message" });
-        await server.publishToChannel("chat:general", message, 10);
+        await server.writeChannel("chat:general", message, 10);
 
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -368,9 +368,9 @@ describe("Persistence System", () => {
         const message2 = JSON.stringify({ text: "Message 2" });
         const message3 = JSON.stringify({ text: "Message 3" });
 
-        await server.publishToChannel("chat:general", message1, 10);
-        await server.publishToChannel("chat:general", message2, 10);
-        await server.publishToChannel("chat:general", message3, 10);
+        await server.writeChannel("chat:general", message1, 10);
+        await server.writeChannel("chat:general", message2, 10);
+        await server.writeChannel("chat:general", message3, 10);
 
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -393,9 +393,9 @@ describe("Persistence System", () => {
 
         const historyLimit = 10;
 
-        await server.publishToChannel("chat:history", message1, historyLimit);
-        await server.publishToChannel("chat:history", message2, historyLimit);
-        await server.publishToChannel("chat:history", message3, historyLimit);
+        await server.writeChannel("chat:history", message1, historyLimit);
+        await server.writeChannel("chat:history", message2, historyLimit);
+        await server.writeChannel("chat:history", message3, historyLimit);
 
         await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -418,8 +418,8 @@ describe("Persistence System", () => {
         const message1 = JSON.stringify({ text: "Persistent Message 1" });
         const message2 = JSON.stringify({ text: "Persistent Message 2" });
 
-        await server.publishToChannel(testChannel, message1, 10);
-        await server.publishToChannel(testChannel, message2, 10);
+        await server.writeChannel(testChannel, message1, 10);
+        await server.writeChannel(testChannel, message2, 10);
 
         // wait for messages to be flushed to database
         await new Promise((resolve) => setTimeout(resolve, 200));
