@@ -310,12 +310,12 @@ export class MeshServer extends WebSocketServer {
    * @param {ChannelPersistenceOptions} [options] - Options for persistence.
    * @throws {Error} If persistence is not enabled for this server instance.
    */
-  enablePersistenceForChannels(pattern: ChannelPattern, options: ChannelPersistenceOptions = {}): void {
+  enableChannelPersistence(pattern: ChannelPattern, options: ChannelPersistenceOptions = {}): void {
     if (!this.persistenceManager) {
       throw new Error("Persistence not enabled. Initialize the persistence manager first.");
     }
 
-    this.persistenceManager.enablePersistenceForChannels(pattern, options);
+    this.persistenceManager.enableChannelPersistence(pattern, options);
   }
 
   /**

@@ -138,7 +138,7 @@ describe("Persistence System", () => {
       const patterns = (persistenceManager as any).channelPatterns;
       const initialLength = patterns.length;
 
-      persistenceManager.enablePersistenceForChannels("chat:*", {
+      persistenceManager.enableChannelPersistence("chat:*", {
         historyLimit: 10,
         maxMessageSize: 1024,
       });
@@ -150,7 +150,7 @@ describe("Persistence System", () => {
     });
 
     test("handles channel messages and adds them to the buffer", () => {
-      persistenceManager.enablePersistenceForChannels("chat:*");
+      persistenceManager.enableChannelPersistence("chat:*");
 
       const mockBuffer = new Map<string, any[]>();
       Object.defineProperty(persistenceManager, "messageBuffer", {
@@ -199,7 +199,7 @@ describe("Persistence System", () => {
 
       const filterSpy = vi.spyOn(testObj, "filter");
 
-      persistenceManager.enablePersistenceForChannels("chat:*", {
+      persistenceManager.enableChannelPersistence("chat:*", {
         filter: testObj.filter,
       });
 
@@ -336,7 +336,7 @@ describe("Persistence System", () => {
 
         server.exposeChannel("chat:*");
 
-        server.enablePersistenceForChannels(/^chat:.*$/, {
+        server.enableChannelPersistence(/^chat:.*$/, {
           historyLimit: 50,
           maxMessageSize: 10240,
           flushInterval: 100,

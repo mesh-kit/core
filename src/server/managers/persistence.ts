@@ -187,7 +187,7 @@ export class PersistenceManager extends EventEmitter {
    * @param pattern string or regexp pattern to match channel names
    * @param options persistence options
    */
-  enablePersistenceForChannels(pattern: string | RegExp, options: ChannelPersistenceOptions = {}): void {
+  enableChannelPersistence(pattern: string | RegExp, options: ChannelPersistenceOptions = {}): void {
     const fullOptions: Required<ChannelPersistenceOptions> = {
       historyLimit: options.historyLimit ?? 50,
       maxMessageSize: options.maxMessageSize ?? 10240,
