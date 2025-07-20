@@ -140,13 +140,11 @@ describe("Persistence System", () => {
 
       persistenceManager.enableChannelPersistence("chat:*", {
         historyLimit: 10,
-        maxMessageSize: 1024,
       });
 
       expect(patterns.length).toBe(initialLength + 1);
       expect(patterns[patterns.length - 1].pattern).toBe("chat:*");
       expect(patterns[patterns.length - 1].options.historyLimit).toBe(10);
-      expect(patterns[patterns.length - 1].options.maxMessageSize).toBe(1024);
     });
 
     test("handles channel messages and adds them to the buffer", () => {
@@ -338,7 +336,6 @@ describe("Persistence System", () => {
 
         server.enableChannelPersistence(/^chat:.*$/, {
           historyLimit: 50,
-          maxMessageSize: 10240,
           flushInterval: 100,
         });
 

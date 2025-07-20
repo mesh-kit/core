@@ -190,7 +190,6 @@ export class PersistenceManager extends EventEmitter {
   enableChannelPersistence(pattern: string | RegExp, options: ChannelPersistenceOptions = {}): void {
     const fullOptions: Required<ChannelPersistenceOptions> = {
       historyLimit: options.historyLimit ?? 50,
-      maxMessageSize: options.maxMessageSize ?? 10240,
       filter: options.filter ?? (() => true),
       adapter: options.adapter ?? this.defaultAdapter,
       flushInterval: options.flushInterval ?? 500,
@@ -270,11 +269,6 @@ export class PersistenceManager extends EventEmitter {
     if (!options) return; // channel doesn't match any persistence pattern
 
     if (!options.filter(message, channel)) return; // message filtered out
-
-    if (message.length > options.maxMessageSize) {
-      serverLogger.warn(`Message for channel ${channel} exceeds max length (${message.length} > ${options.maxMessageSize}), truncating for persistence`);
-      message = message.substring(0, options.maxMessageSize); // truncate
-    }
 
     const persistedMessage: PersistedMessage = {
       id: uuidv4(),
