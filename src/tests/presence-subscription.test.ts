@@ -207,8 +207,8 @@ describe("Presence Subscription", () => {
 
     expect(success).toBe(true);
     expect(present.length).toBe(2);
-    expect(present).toContain(connections[0]!.id);
-    expect(present).toContain(connections[1]!.id);
+    expect(present.map((p) => p.id)).toContain(connections[0]!.id);
+    expect(present.map((p) => p.id)).toContain(connections[1]!.id);
   });
 
   test("presence is cleaned up when connection is closed", async () => {
@@ -468,8 +468,8 @@ describe("Presence Subscription (Multiple Instances)", () => {
     expect(success).toBe(true);
     // initial list contains client b and c
     expect(present.length).toBe(2);
-    expect(present).toContain(clientBId);
-    expect(present).toContain(clientCId);
+    expect(present.map((p) => p.id)).toContain(clientBId);
+    expect(present.map((p) => p.id)).toContain(clientCId);
 
     expect(callbackA).toHaveBeenCalledTimes(1);
   }, 10000);

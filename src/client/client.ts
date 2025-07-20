@@ -1013,14 +1013,14 @@ export class MeshClient extends EventEmitter {
    *
    * @param {string} roomName - The name of the room to subscribe to presence updates for.
    * @param {PresenceUpdateCallback} callback - Function called on presence updates.
-   * @returns {Promise<{ success: boolean; present: string[]; states?: Record<string, Record<string, any>> }>} Initial state of presence in the room.
+   * @returns {Promise<{ success: boolean; present: Array<{ id: string; metadata: any }>; states?: Record<string, Record<string, any>> }>} Initial state of presence in the room.
    */
   async subscribePresence(
     roomName: string,
     callback: PresenceUpdateCallback,
   ): Promise<{
     success: boolean;
-    present: string[];
+    present: Array<{ id: string; metadata: any }>;
     states?: Record<string, Record<string, any>>;
   }> {
     try {

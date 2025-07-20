@@ -674,29 +674,7 @@ export class MeshServer extends WebSocketServer {
     this.exposeCommand<{ roomName: string }, { success: boolean; present: Array<{ id: string; metadata: any }> }>("mesh/join-room", async (ctx) => {
       const { roomName } = ctx.payload;
       await this.addToRoom(roomName, ctx.connection);
-      const presentIds = await this.presenceManager.getPresentConnections(roomName);
-
-      // get metadata for all present connections
-      const present = await Promise.all(
-        presentIds.map(async (connectionId) => {
-          const connection = this.connectionManager.getLocalConnection(connectionId);
-          let metadata = null;
-
-          try {
-            if (connection) {
-              metadata = await this.connectionManager.getMetadata(connection);
-            } else {
-              const metadataString = await this.redisManager.redis.hget("mesh:connections", connectionId);
-              metadata = metadataString ? JSON.parse(metadataString) : null;
-            }
-          } catch (e) {
-            metadata = null;
-          }
-
-          return { id: connectionId, metadata };
-        }),
-      );
-
+      const present = await this.getRoomMembersWithMetadata(roomName);
       return { success: true, present };
     });
 
@@ -810,7 +788,7 @@ export class MeshServer extends WebSocketServer {
       { roomName: string },
       {
         success: boolean;
-        present: string[];
+        present: Array<{ id: string; metadata: any }>;
         states?: Record<string, Record<string, any>>;
       }
     >("mesh/subscribe-presence", async (ctx) => {
@@ -829,7 +807,7 @@ export class MeshServer extends WebSocketServer {
           await this.channelManager.subscribeToRedisChannel(presenceChannel);
         }
 
-        const present = await this.presenceManager.getPresentConnections(roomName);
+        const present = await this.getRoomMembersWithMetadata(roomName);
 
         // get all presence states for the room
         const statesMap = await this.presenceManager.getAllPresenceStates(roomName);
