@@ -79,7 +79,7 @@ describe("Resubscription after reconnect", () => {
     await server.publishToChannel("test:channel", "Test message after reconnect");
 
     // verify record subscription is restored by updating the record
-    await server.publishRecordUpdate("test:record", { value: "updated" });
+    await server.writeRecord("test:record", { value: "updated" });
 
     // verify room subscription is restored by checking if client is in the room
     const roomMembers = await server.getRoomMembers("test:room");

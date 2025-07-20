@@ -50,7 +50,7 @@ describe("Record Deletion Notifications", () => {
     const recordId = "test:record:1";
     const initialData = { id: recordId, name: "Test Record", value: 42 };
 
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
     await client.connect();
 
     const updates: Array<{ recordId: string; full?: any; patch?: any; version: number; deleted?: boolean }> = [];
@@ -85,8 +85,8 @@ describe("Record Deletion Notifications", () => {
     const recordId = "test:record:2";
     const otherRecordId = "test:record:3";
 
-    await server.publishRecordUpdate(recordId, { id: recordId, name: "Test Record 2" });
-    await server.publishRecordUpdate(otherRecordId, { id: otherRecordId, name: "Test Record 3" });
+    await server.writeRecord(recordId, { id: recordId, name: "Test Record 2" });
+    await server.writeRecord(otherRecordId, { id: otherRecordId, name: "Test Record 3" });
     await client.connect();
 
     // only subscribe to the first record
@@ -111,7 +111,7 @@ describe("Record Deletion Notifications", () => {
     const recordId = "test:record:cleanup";
     const initialData = { id: recordId, name: "Cleanup Test" };
 
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
     await client.connect();
 
     const callback = vi.fn();
@@ -132,7 +132,7 @@ describe("Record Deletion Notifications", () => {
     await client2.connect();
 
     try {
-      await server.publishRecordUpdate(recordId, initialData);
+      await server.writeRecord(recordId, initialData);
       await client.connect();
 
       const callback1 = vi.fn();
@@ -168,7 +168,7 @@ describe("Record Deletion Notifications", () => {
     const recordId = "test:record:modes";
     const initialData = { id: recordId, name: "Mode Test", counter: 0 };
 
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
     await client.connect();
 
     const patchCallback = vi.fn();
@@ -239,7 +239,7 @@ describe("Record Deletion Notifications - Multi-Instance", () => {
       server.exposeRecord(/^test:record:.*/);
     });
 
-    await serverA.publishRecordUpdate(recordId, initialData);
+    await serverA.writeRecord(recordId, initialData);
 
     const callbackA = vi.fn();
     const callbackB = vi.fn();

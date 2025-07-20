@@ -111,7 +111,7 @@ describe("Record Persistence System", () => {
 
       const recordId = "profile:user:123";
       const recordValue = { name: "Test User", status: "active" };
-      await server.publishRecordUpdate(recordId, recordValue);
+      await server.writeRecord(recordId, recordValue);
 
       expect(handleRecordUpdateSpy).toHaveBeenCalledWith(recordId, recordValue, expect.any(Number));
     });
@@ -124,9 +124,9 @@ describe("Record Persistence System", () => {
       const { persistenceManager } = server as any;
       const flushRecordsSpy = vi.spyOn(persistenceManager, "flushRecords");
 
-      await server.publishRecordUpdate("profile:user:1", { name: "User 1" });
+      await server.writeRecord("profile:user:1", { name: "User 1" });
       expect(flushRecordsSpy).not.toHaveBeenCalled();
-      await server.publishRecordUpdate("profile:user:2", { name: "User 2" });
+      await server.writeRecord("profile:user:2", { name: "User 2" });
       expect(flushRecordsSpy).toHaveBeenCalled();
     });
   });
@@ -162,8 +162,8 @@ describe("Record Persistence System", () => {
         const record1 = { name: "User 1", status: "active" };
         const record2 = { name: "User 2", status: "inactive" };
 
-        await server.publishRecordUpdate("profile:user:1", record1);
-        await server.publishRecordUpdate("profile:user:2", record2);
+        await server.writeRecord("profile:user:1", record1);
+        await server.writeRecord("profile:user:2", record2);
 
         const { persistenceManager } = server as any;
         const retrievedRecords = await persistenceManager.getPersistedRecords("profile:user:*");
@@ -181,10 +181,10 @@ describe("Record Persistence System", () => {
 
       test("updates existing records with new versions", async () => {
         const initialRecord = { name: "User 1", status: "active" };
-        await server.publishRecordUpdate("profile:user:1", initialRecord);
+        await server.writeRecord("profile:user:1", initialRecord);
 
         const updatedRecord = { name: "User 1", status: "inactive" };
-        await server.publishRecordUpdate("profile:user:1", updatedRecord);
+        await server.writeRecord("profile:user:1", updatedRecord);
 
         const { persistenceManager } = server as any;
         const retrievedRecords = await persistenceManager.getPersistedRecords("profile:user:1");
@@ -260,7 +260,7 @@ describe("Record Persistence System", () => {
         const recordId = "profile:user:456";
         const recordValue = { name: "Another User", status: "busy" };
 
-        await server.publishRecordUpdate(recordId, recordValue);
+        await server.writeRecord(recordId, recordValue);
 
         const { success, record } = await client.subscribeRecord(recordId);
 

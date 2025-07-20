@@ -51,9 +51,9 @@ describe("Collection Subscriptions", () => {
   });
 
   test("should expose and subscribe to a collection", async () => {
-    await server.publishRecordUpdate("task:1", { id: "task:1", title: "Task 1", completed: false });
-    await server.publishRecordUpdate("task:2", { id: "task:2", title: "Task 2", completed: true });
-    await server.publishRecordUpdate("task:3", { id: "task:3", title: "Task 3", completed: false });
+    await server.writeRecord("task:1", { id: "task:1", title: "Task 1", completed: false });
+    await server.writeRecord("task:2", { id: "task:2", title: "Task 2", completed: true });
+    await server.writeRecord("task:3", { id: "task:3", title: "Task 3", completed: false });
 
     server.exposeRecord("task:*");
     server.exposeCollection("collection:all-tasks", async () => server.listRecordsMatching("task:*"));
@@ -75,7 +75,7 @@ describe("Collection Subscriptions", () => {
     expect(result.version).toBe(1);
 
     // add a new record to trigger a diff
-    await server.publishRecordUpdate("task:4", { id: "task:4", title: "Task 4", completed: false });
+    await server.writeRecord("task:4", { id: "task:4", title: "Task 4", completed: false });
     await wait(100);
 
     // verify diff received - we get initial + task:4 added + task:4 record created
@@ -86,7 +86,7 @@ describe("Collection Subscriptions", () => {
     expect(diffs[1]!.version).toBe(2);
 
     // update a record, triggering onDiff with changed
-    await server.publishRecordUpdate("task:1", { id: "task:1", title: "Updated Task 1", completed: true });
+    await server.writeRecord("task:1", { id: "task:1", title: "Updated Task 1", completed: true });
     await wait(100);
 
     expect(diffs.length).toBe(4); // initial + added task:4 + changed task:4 + changed task:1
@@ -119,8 +119,8 @@ describe("Collection Subscriptions", () => {
     const initialRecord1 = { id: "initial:task:1", title: "Initial Task 1", done: false };
     const initialRecord2 = { id: "initial:task:2", title: "Initial Task 2", done: true };
 
-    await server.publishRecordUpdate(initialRecord1.id, initialRecord1);
-    await server.publishRecordUpdate(initialRecord2.id, initialRecord2);
+    await server.writeRecord(initialRecord1.id, initialRecord1);
+    await server.writeRecord(initialRecord2.id, initialRecord2);
 
     server.exposeRecord("initial:task:*");
     server.exposeCollection("collection:initial-tasks", async () => server.listRecordsMatching("initial:task:*"));
@@ -166,7 +166,7 @@ describe("Collection Subscriptions", () => {
 
     // subsequent update calls onDiff with changed
     const updatedRecord1 = { ...initialRecord1, title: "Updated Task 1" };
-    await server.publishRecordUpdate(initialRecord1.id, updatedRecord1);
+    await server.writeRecord(initialRecord1.id, updatedRecord1);
     await wait(100);
     expect(mockOnDiff).toHaveBeenCalledTimes(2);
     expect(mockOnDiff).toHaveBeenLastCalledWith({
@@ -188,7 +188,7 @@ describe("Collection Subscriptions", () => {
     const redisKeyPattern = `mesh:collection:${collectionId}:${connectionId}`;
 
     // expose record and collection
-    await server.publishRecordUpdate(recordId, recordData);
+    await server.writeRecord(recordId, recordData);
     server.exposeRecord("cleanup:task:*");
     server.exposeCollection(collectionId, async () => server.listRecordsMatching("cleanup:task:*"));
 
@@ -210,9 +210,9 @@ describe("Collection Subscriptions", () => {
   });
 
   test("should support dynamic collections based on patterns", async () => {
-    await server.publishRecordUpdate("user:1:task:1", { id: "user:1:task:1", title: "User 1 Task 1" });
-    await server.publishRecordUpdate("user:1:task:2", { id: "user:1:task:2", title: "User 1 Task 2" });
-    await server.publishRecordUpdate("user:2:task:1", { id: "user:2:task:1", title: "User 2 Task 1" });
+    await server.writeRecord("user:1:task:1", { id: "user:1:task:1", title: "User 1 Task 1" });
+    await server.writeRecord("user:1:task:2", { id: "user:1:task:2", title: "User 1 Task 2" });
+    await server.writeRecord("user:2:task:1", { id: "user:2:task:1", title: "User 2 Task 1" });
 
     server.exposeRecord("user:*:task:*");
 
@@ -247,7 +247,7 @@ describe("Collection Subscriptions", () => {
 
     // publish all records
     for (const record of records) {
-      await server.publishRecordUpdate(record.id, record);
+      await server.writeRecord(record.id, record);
     }
 
     server.exposeCollection(/^items:page:\d+$/, async (conn, collectionId) => {
@@ -363,7 +363,7 @@ describe.sequential("Collection Subscriptions - Multi-Instance", () => {
     onDiffB.mockClear();
 
     // add a record via srv A
-    await serverA.publishRecordUpdate("task:multi:1", { id: "task:multi:1", title: "Multi Task 1" });
+    await serverA.writeRecord("task:multi:1", { id: "task:multi:1", title: "Multi Task 1" });
 
     await wait(100);
 

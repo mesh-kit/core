@@ -179,7 +179,7 @@ export class RecordSubscriptionManager {
    * @returns {Promise<void>}
    * @throws {Error} If the update fails.
    */
-  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
+  async writeRecord(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
     const updateResult = await this.recordManager.publishUpdate(recordId, newValue, options?.strategy || "replace");
 
     if (!updateResult) {

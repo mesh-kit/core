@@ -55,7 +55,7 @@ describe("Record Subscription", () => {
   test("client can subscribe to an exposed record and get initial state", async () => {
     const recordId = "test:record:1";
     const initialData = { count: 0, name: "initial" };
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
 
     await client1.connect();
 
@@ -129,11 +129,11 @@ describe("Record Subscription", () => {
     await client1.subscribeRecord(recordId, callback);
 
     const data1 = { count: 1 };
-    await server.publishRecordUpdate(recordId, data1);
+    await server.writeRecord(recordId, data1);
     await wait(50); // because pub/sub takes a bit
 
     const data2 = { count: 2, name: "hello" };
-    await server.publishRecordUpdate(recordId, data2);
+    await server.writeRecord(recordId, data2);
     await wait(50);
 
     expect(updates.length).toBe(3); // initial + 2 updates
@@ -154,15 +154,15 @@ describe("Record Subscription", () => {
     await client1.subscribeRecord(recordId, callback, { mode: "patch" });
 
     const data1 = { count: 1 };
-    await server.publishRecordUpdate(recordId, data1);
+    await server.writeRecord(recordId, data1);
     await wait(50);
 
     const data2 = { count: 1, name: "added" };
-    await server.publishRecordUpdate(recordId, data2);
+    await server.writeRecord(recordId, data2);
     await wait(50);
 
     const data3 = { name: "added" };
-    await server.publishRecordUpdate(recordId, data3);
+    await server.writeRecord(recordId, data3);
     await wait(50);
 
     expect(updates.length).toBe(4);
@@ -202,11 +202,11 @@ describe("Record Subscription", () => {
     await client2.subscribeRecord(recordId, callback2, { mode: "patch" });
 
     const data1 = { value: "a" };
-    await server.publishRecordUpdate(recordId, data1);
+    await server.writeRecord(recordId, data1);
     await wait(100);
 
     const data2 = { value: "b" };
-    await server.publishRecordUpdate(recordId, data2);
+    await server.writeRecord(recordId, data2);
     await wait(100);
 
     // client 1 wants full updates
@@ -241,13 +241,13 @@ describe("Record Subscription", () => {
 
     await client1.subscribeRecord(recordId, callback);
 
-    await server.publishRecordUpdate(recordId, { count: 1 });
+    await server.writeRecord(recordId, { count: 1 });
     await wait(50);
 
     const unsubSuccess = await client1.unsubscribeRecord(recordId);
     expect(unsubSuccess).toBe(true);
 
-    await server.publishRecordUpdate(recordId, { count: 2 });
+    await server.writeRecord(recordId, { count: 2 });
     await wait(50);
 
     expect(updates.length).toBe(2);
@@ -270,7 +270,7 @@ describe("Record Subscription", () => {
     await client1.subscribeRecord(recordId, callback, { mode: "patch" }); // v0, initial full
 
     // v1
-    await server.publishRecordUpdate(recordId, { count: 1 });
+    await server.writeRecord(recordId, { count: 1 });
     await wait(50); // client receives v1 patch
 
     // publish v2 and v3 without notifying client via pub/sub
@@ -285,7 +285,7 @@ describe("Record Subscription", () => {
 
     // publish v4 via the proper mechanism, while client expects v2
     const data4 = { count: 4 };
-    await server.publishRecordUpdate(recordId, data4); // v4
+    await server.writeRecord(recordId, data4); // v4
     await wait(100); // allocate time for desync handling
 
     expect(callback).toHaveBeenCalledTimes(3); // v0, v1, v4
@@ -334,7 +334,7 @@ describe("Record Subscription", () => {
 
     const initialData = { value: "initial" };
     // client 1 writes
-    const success = await client1.publishRecordUpdate(recordId, initialData);
+    const success = await client1.writeRecord(recordId, initialData);
     expect(success).toBe(true);
 
     await wait(150);
@@ -360,7 +360,7 @@ describe("Record Subscription", () => {
     await client1.connect();
 
     const initialData = { value: "attempt" };
-    const success = await client1.publishRecordUpdate(recordId, initialData);
+    const success = await client1.writeRecord(recordId, initialData);
     expect(success).toBe(false);
 
     // verify server state hasn't changed
@@ -374,7 +374,7 @@ describe("Record Subscription", () => {
     await client1.connect();
 
     const initialData = { value: "attempt" };
-    const success = await client1.publishRecordUpdate(recordId, initialData);
+    const success = await client1.writeRecord(recordId, initialData);
     expect(success).toBe(false);
 
     const { record, version } = await server.recordManager.getRecordAndVersion(recordId);
@@ -394,7 +394,7 @@ describe("Record Subscription", () => {
     server.exposeWritableRecord(recordId, (connection, recId) => connection.id === connection1Id);
 
     const data1 = { value: "from client 1" };
-    const success1 = await client1.publishRecordUpdate(recordId, data1);
+    const success1 = await client1.writeRecord(recordId, data1);
     expect(success1).toBe(true);
 
     await wait(50);
@@ -403,7 +403,7 @@ describe("Record Subscription", () => {
     expect(serverState.version).toBe(1);
 
     const data2 = { value: "from client 2" };
-    const success2 = await client2.publishRecordUpdate(recordId, data2);
+    const success2 = await client2.writeRecord(recordId, data2);
     expect(success2).toBe(false);
 
     await wait(50);
@@ -437,11 +437,11 @@ describe("Record Subscription", () => {
 
     // client 1 writes
     const data1 = { count: 1 };
-    await client1.publishRecordUpdate(recordId, data1);
+    await client1.writeRecord(recordId, data1);
     await wait(100);
 
     const data2 = { count: 1, name: "added" };
-    await client1.publishRecordUpdate(recordId, data2);
+    await client1.writeRecord(recordId, data2);
     await wait(150);
 
     // client 2 received the patches (initial call + 2 patches)
@@ -466,7 +466,7 @@ describe("Record Subscription", () => {
 
     await client1.connect();
 
-    await server.publishRecordUpdate(recordId, initialValue);
+    await server.writeRecord(recordId, initialValue);
     await wait(50);
 
     const updates: any[] = [];
@@ -487,7 +487,7 @@ describe("Record Subscription", () => {
       version: 1,
     });
 
-    await server.publishRecordUpdate(recordId, updatedValue);
+    await server.writeRecord(recordId, updatedValue);
     await wait(100);
 
     expect(callback).toHaveBeenCalledTimes(2);
@@ -566,7 +566,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data1 = { value: "update1" };
     // server A publishes, should reach both clients
-    await serverA.publishRecordUpdate(recordId, data1);
+    await serverA.writeRecord(recordId, data1);
 
     await wait(150);
 
@@ -600,7 +600,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data1 = { message: "hello from client A" };
     // client A writes, should propagate to client B via server B
-    const writeSuccess = await clientA.publishRecordUpdate(writableRecordId, data1);
+    const writeSuccess = await clientA.writeRecord(writableRecordId, data1);
     expect(writeSuccess).toBe(true);
 
     await wait(150);
@@ -649,7 +649,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data1 = { count: 1 };
     // client A writes first update
-    let writeSuccess = await clientA.publishRecordUpdate(writableRecordId, data1);
+    let writeSuccess = await clientA.writeRecord(writableRecordId, data1);
     expect(writeSuccess).toBe(true);
 
     await wait(150);
@@ -670,7 +670,7 @@ describe("Record Subscription (Multiple Instances)", () => {
 
     const data2 = { count: 1, name: "added" };
     // client A writes second update
-    writeSuccess = await clientA.publishRecordUpdate(writableRecordId, data2);
+    writeSuccess = await clientA.writeRecord(writableRecordId, data2);
     expect(writeSuccess).toBe(true);
 
     await wait(150);

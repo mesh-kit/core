@@ -56,7 +56,7 @@ describe("Record Update and Remove Hooks", () => {
     const updateCallback = vi.fn();
     const unregister = server.onRecordUpdate(updateCallback);
 
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
     await wait(50);
 
     expect(updateCallback).toHaveBeenCalledTimes(1);
@@ -65,7 +65,7 @@ describe("Record Update and Remove Hooks", () => {
       value: initialData,
     });
 
-    await server.publishRecordUpdate(recordId, updatedData);
+    await server.writeRecord(recordId, updatedData);
     await wait(50);
 
     expect(updateCallback).toHaveBeenCalledTimes(2);
@@ -76,7 +76,7 @@ describe("Record Update and Remove Hooks", () => {
 
     unregister();
 
-    await server.publishRecordUpdate(recordId, { count: 2 });
+    await server.writeRecord(recordId, { count: 2 });
     await wait(50);
 
     expect(updateCallback).toHaveBeenCalledTimes(2);
@@ -89,7 +89,7 @@ describe("Record Update and Remove Hooks", () => {
     const updateCallback = vi.fn();
     server.onRecordUpdate(updateCallback);
 
-    const success = await client.publishRecordUpdate(recordId, data);
+    const success = await client.writeRecord(recordId, data);
     expect(success).toBe(true);
 
     await wait(100);
@@ -105,7 +105,7 @@ describe("Record Update and Remove Hooks", () => {
     const recordId = "test:record:delete";
     const initialData = { count: 0, name: "to be deleted" };
 
-    await server.publishRecordUpdate(recordId, initialData);
+    await server.writeRecord(recordId, initialData);
     await wait(50);
 
     const removeCallback = vi.fn();
@@ -123,7 +123,7 @@ describe("Record Update and Remove Hooks", () => {
     unregister();
 
     const anotherRecordId = "test:record:another-delete";
-    await server.publishRecordUpdate(anotherRecordId, { test: true });
+    await server.writeRecord(anotherRecordId, { test: true });
     await wait(50);
 
     await server.recordManager.deleteRecord(anotherRecordId);
@@ -142,7 +142,7 @@ describe("Record Update and Remove Hooks", () => {
     server.onRecordUpdate(callback1);
     server.onRecordUpdate(callback2);
 
-    await server.publishRecordUpdate(recordId, data);
+    await server.writeRecord(recordId, data);
     await wait(50);
 
     expect(callback1).toHaveBeenCalledTimes(1);
@@ -162,7 +162,7 @@ describe("Record Update and Remove Hooks", () => {
     const recordId = "test:record:multiple-remove-callbacks";
     const data = { value: "to be removed" };
 
-    await server.publishRecordUpdate(recordId, data);
+    await server.writeRecord(recordId, data);
     await wait(50);
 
     const callback1 = vi.fn();
@@ -203,7 +203,7 @@ describe("Record Update and Remove Hooks", () => {
     server.onRecordUpdate(errorCallback);
     server.onRecordUpdate(successCallback);
 
-    await server.publishRecordUpdate(recordId, data);
+    await server.writeRecord(recordId, data);
     await wait(50);
 
     expect(errorCallback).toHaveBeenCalledTimes(1);
@@ -226,7 +226,7 @@ describe("Record Update and Remove Hooks", () => {
 
     server.onRecordUpdate(asyncCallback);
 
-    await server.publishRecordUpdate(recordId, data);
+    await server.writeRecord(recordId, data);
 
     expect(asyncOperationCompleted).toBe(false);
 

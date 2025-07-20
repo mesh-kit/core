@@ -369,20 +369,20 @@ export class MeshServer extends WebSocketServer {
    *
    * @example
    * // Replace strategy (default) - replaces entire record
-   * await server.publishRecordUpdate("user:123", { name: "John", age: 30 });
+   * await server.writeRecord("user:123", { name: "John", age: 30 });
    *
    * // Merge strategy - merges with existing record
    * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
-   * await server.publishRecordUpdate("user:123", { name: "new name" }, { strategy: "merge" });
+   * await server.writeRecord("user:123", { name: "new name" }, { strategy: "merge" });
    * // Result: { name: "new name", age: 30, city: "NYC" }
    *
    * // Deep merge strategy - recursively merges nested objects
    * // If record currently contains: { name: "John", profile: { age: 30, city: "NYC", preferences: { theme: "dark" } } }
-   * await server.publishRecordUpdate("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
+   * await server.writeRecord("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
    * // Result: { name: "John", profile: { age: 31, city: "NYC", preferences: { theme: "dark" } } }
    */
-  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
-    return this.recordSubscriptionManager.publishRecordUpdate(recordId, newValue, options);
+  async writeRecord(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<void> {
+    return this.recordSubscriptionManager.writeRecord(recordId, newValue, options);
   }
 
   /**
@@ -776,7 +776,7 @@ export class MeshServer extends WebSocketServer {
         }
 
         try {
-          await this.publishRecordUpdate(recordId, newValue, options);
+          await this.writeRecord(recordId, newValue, options);
           return { success: true };
         } catch (e: any) {
           throw new Error(`Failed to publish update for record "${recordId}": ${e.message}`);

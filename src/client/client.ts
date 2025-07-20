@@ -935,19 +935,19 @@ export class MeshClient extends EventEmitter {
    *
    * @example
    * // Replace strategy (default) - replaces entire record
-   * await client.publishRecordUpdate("user:123", { name: "John", age: 30 });
+   * await client.writeRecord("user:123", { name: "John", age: 30 });
    *
    * // Merge strategy - merges with existing record
    * // If record currently contains: { name: "old name", age: 30, city: "NYC" }
-   * await client.publishRecordUpdate("user:123", { name: "new name" }, { strategy: "merge" });
+   * await client.writeRecord("user:123", { name: "new name" }, { strategy: "merge" });
    * // Result: { name: "new name", age: 30, city: "NYC" }
    *
    * // Deep merge strategy - recursively merges nested objects
    * // If record currently contains: { name: "John", profile: { age: 30, city: "NYC", preferences: { theme: "dark" } } }
-   * await client.publishRecordUpdate("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
+   * await client.writeRecord("user:123", { profile: { age: 31 } }, { strategy: "deepMerge" });
    * // Result: { name: "John", profile: { age: 31, city: "NYC", preferences: { theme: "dark" } } }
    */
-  async publishRecordUpdate(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<boolean> {
+  async writeRecord(recordId: string, newValue: any, options?: { strategy?: "replace" | "merge" | "deepMerge" }): Promise<boolean> {
     try {
       const result = await this.command("mesh/publish-record-update", {
         recordId,
