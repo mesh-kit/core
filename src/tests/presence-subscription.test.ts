@@ -262,44 +262,6 @@ describe("Presence Subscription", () => {
     await testClient.close();
     await testServer.close();
   }, 10000);
-
-  // test("client can manually refresh presence", async () => {
-  //   const roomName = "test:room:refresh";
-  //   const shortTTL = 500; // very short TTL for testing
-
-  //   server.trackPresence(roomName, { ttl: shortTTL });
-
-  //   await client1.connect();
-
-  //   // join
-  //   const joinResult = await client1.joinRoom(roomName);
-  //   expect(joinResult.success).toBe(true);
-
-  //   // get my id
-  //   const connections = server.connectionManager.getLocalConnections();
-  //   const connectionId = connections[0]?.id;
-  //   expect(connectionId).toBeDefined();
-
-  //   // verify presence
-  //   let present = await server.presenceManager.getPresentConnections(roomName);
-  //   expect(present).toContain(connectionId);
-
-  //   // wait half the TTL
-  //   await wait(shortTTL / 2);
-
-  //   // refresh presence
-  //   const refreshResult = await client1.refreshPresence(roomName);
-
-  //   // verify refresh was successful
-  //   expect(refreshResult).toBe(true);
-
-  //   // wait for longer than the original TTL
-  //   await wait(shortTTL + 100);
-
-  //   // presence should still be active due to the refresh
-  //   present = await server.presenceManager.getPresentConnections(roomName);
-  //   expect(present).toContain(connectionId);
-  // }, 10000);
 });
 
 describe("Presence Subscription (Multiple Instances)", () => {
