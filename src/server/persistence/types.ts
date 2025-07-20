@@ -24,10 +24,10 @@ export interface ChannelPersistenceOptions {
   historyLimit?: number;
 
   /**
-   * Maximum message size allowed for persistence in bytes
-   * If a message exceeds this size, it will still be delivered to subscribers,
+   * Maximum message size allowed for persistence in string length.
+   * If a message exceeds this length, it will still be delivered to subscribers,
    * but a truncated version (or nothing) will be saved to the database
-   * @default 10240 (10KB)
+   * @default 10240 (string length)
    */
   maxMessageSize?: number;
 

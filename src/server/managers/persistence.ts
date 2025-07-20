@@ -272,7 +272,7 @@ export class PersistenceManager extends EventEmitter {
     if (!options.filter(message, channel)) return; // message filtered out
 
     if (message.length > options.maxMessageSize) {
-      serverLogger.warn(`Message for channel ${channel} exceeds max size (${message.length} > ${options.maxMessageSize}), truncating for persistence`);
+      serverLogger.warn(`Message for channel ${channel} exceeds max length (${message.length} > ${options.maxMessageSize}), truncating for persistence`);
       message = message.substring(0, options.maxMessageSize); // truncate
     }
 
