@@ -487,6 +487,30 @@ export class MeshServer extends WebSocketServer {
     return this.roomManager.getRoomConnectionIds(roomName);
   }
 
+  async getRoomMembersWithMetadata(roomName: string): Promise<Array<{ id: string; metadata: any }>> {
+    const connectionIds = await this.roomManager.getRoomConnectionIds(roomName);
+
+    return Promise.all(
+      connectionIds.map(async (connectionId) => {
+        try {
+          const connection = this.connectionManager.getLocalConnection(connectionId);
+          let metadata;
+
+          if (connection) {
+            metadata = await this.connectionManager.getMetadata(connection);
+          } else {
+            const metadataString = await this.redisManager.redis.hget("mesh:connections", connectionId);
+            metadata = metadataString ? JSON.parse(metadataString) : null;
+          }
+
+          return { id: connectionId, metadata };
+        } catch (e) {
+          return { id: connectionId, metadata: null };
+        }
+      }),
+    );
+  }
+
   async getAllRooms(): Promise<string[]> {
     return this.roomManager.getAllRooms();
   }
@@ -647,10 +671,32 @@ export class MeshServer extends WebSocketServer {
       },
     );
 
-    this.exposeCommand<{ roomName: string }, { success: boolean; present: string[] }>("mesh/join-room", async (ctx) => {
+    this.exposeCommand<{ roomName: string }, { success: boolean; present: Array<{ id: string; metadata: any }> }>("mesh/join-room", async (ctx) => {
       const { roomName } = ctx.payload;
       await this.addToRoom(roomName, ctx.connection);
-      const present = await this.presenceManager.getPresentConnections(roomName);
+      const presentIds = await this.presenceManager.getPresentConnections(roomName);
+
+      // get metadata for all present connections
+      const present = await Promise.all(
+        presentIds.map(async (connectionId) => {
+          const connection = this.connectionManager.getLocalConnection(connectionId);
+          let metadata = null;
+
+          try {
+            if (connection) {
+              metadata = await this.connectionManager.getMetadata(connection);
+            } else {
+              const metadataString = await this.redisManager.redis.hget("mesh:connections", connectionId);
+              metadata = metadataString ? JSON.parse(metadataString) : null;
+            }
+          } catch (e) {
+            metadata = null;
+          }
+
+          return { id: connectionId, metadata };
+        }),
+      );
+
       return { success: true, present };
     });
 

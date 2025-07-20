@@ -967,10 +967,10 @@ export class MeshClient extends EventEmitter {
    *
    * @param {string} roomName - The name of the room to join.
    * @param {PresenceUpdateCallback=} onPresenceUpdate - Optional callback to receive presence updates for the room.
-   * @returns {Promise<{ success: boolean; present: string[] }>} A promise that resolves with an object indicating whether joining was successful and the list of present members.
+   * @returns {Promise<{ success: boolean; present: Array<{ id: string; metadata: any }> }>} A promise that resolves with an object indicating whether joining was successful and the list of present members with their metadata.
    * @throws {Error} If an error occurs during the join or subscription process, the promise may be rejected with the error.
    */
-  async joinRoom(roomName: string, onPresenceUpdate?: PresenceUpdateCallback): Promise<{ success: boolean; present: string[] }> {
+  async joinRoom(roomName: string, onPresenceUpdate?: PresenceUpdateCallback): Promise<{ success: boolean; present: Array<{ id: string; metadata: any }> }> {
     const joinResult = await this.command("mesh/join-room", { roomName });
 
     if (!joinResult.success) {
@@ -984,7 +984,7 @@ export class MeshClient extends EventEmitter {
     }
 
     const { success: subSuccess, present } = await this.subscribePresence(roomName, onPresenceUpdate);
-    return { success: subSuccess, present };
+    return { success: subSuccess, present: joinResult.present || [] };
   }
 
   /**
