@@ -24,6 +24,19 @@ export type PresenceUpdate =
 
 export type PresenceUpdateCallback = (update: PresenceUpdate) => void | Promise<void>;
 
+interface MeshClientEvents {
+  connect: [];
+  disconnect: [];
+  reconnect: [];
+  reconnectfailed: [];
+  close: [];
+  error: [Error];
+  ping: [];
+  latency: [any];
+  message: [any];
+  republish: [];
+}
+
 export type MeshClientOptions = Partial<{
   /**
    * The number of milliseconds to wait before considering the connection closed due to inactivity.
@@ -76,7 +89,7 @@ export type MeshClientOptions = Partial<{
   logLevel: LogLevel;
 }>;
 
-export class MeshClient extends EventEmitter {
+export class MeshClient extends EventEmitter<MeshClientEvents> {
   connection: Connection;
   url: string;
   socket: WebSocket | null = null;
@@ -1224,56 +1237,6 @@ export class MeshClient extends EventEmitter {
       clientLogger.error(`(forcePresenceUpdate) Failed to force presence update for room ${roomName}:`, error);
       return false;
     }
-  }
-
-  /**
-   * Register a callback for the connect event.
-   * This event is emitted when the client successfully connects to the server.
-   *
-   * @param {() => void} callback - The function to call when the client connects
-   * @returns {this} The client instance for chaining
-   */
-  onConnect(callback: () => void): this {
-    this.on("connect", callback);
-    return this;
-  }
-
-  /**
-   * Register a callback for the disconnect event.
-   * This event is emitted when the client disconnects from the server.
-   *
-   * @param {() => void} callback - The function to call when the client disconnects
-   * @returns {this} The client instance for chaining
-   */
-  onDisconnect(callback: () => void): this {
-    this.on("disconnect", callback);
-    return this;
-  }
-
-  /**
-   * Register a callback for the reconnect event.
-   * This event is emitted when the client successfully reconnects to the server
-   * after a disconnection.
-   *
-   * @param {() => void} callback - The function to call when the client reconnects
-   * @returns {this} The client instance for chaining
-   */
-  onReconnect(callback: () => void): this {
-    this.on("reconnect", callback);
-    return this;
-  }
-
-  /**
-   * Register a callback for the reconnect failed event.
-   * This event is emitted when the client fails to reconnect after reaching
-   * the maximum number of reconnect attempts.
-   *
-   * @param {() => void} callback - The function to call when reconnection fails
-   * @returns {this} The client instance for chaining
-   */
-  onReconnectFailed(callback: () => void): this {
-    this.on("reconnectfailed", callback);
-    return this;
   }
 
   /**

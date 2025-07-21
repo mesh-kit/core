@@ -373,25 +373,4 @@ describe("MeshClient", () => {
     const retrievedMetadata = await client.getConnectionMetadata();
     expect(retrievedMetadata).toEqual({ user: "test-user" });
   });
-
-  test("helper methods register event listeners correctly", async () => {
-    const connectSpy = vi.fn();
-    const disconnectSpy = vi.fn();
-    const reconnectSpy = vi.fn();
-    const reconnectFailedSpy = vi.fn();
-
-    client.onConnect(connectSpy).onDisconnect(disconnectSpy).onReconnect(reconnectSpy).onReconnectFailed(reconnectFailedSpy);
-
-    await client.connect();
-    expect(connectSpy).toHaveBeenCalled();
-
-    client.emit("disconnect");
-    expect(disconnectSpy).toHaveBeenCalled();
-
-    client.emit("reconnect");
-    expect(reconnectSpy).toHaveBeenCalled();
-
-    client.emit("reconnectfailed");
-    expect(reconnectFailedSpy).toHaveBeenCalled();
-  });
 });
