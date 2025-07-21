@@ -73,8 +73,8 @@ export function createPresence<TState extends Record<string, any>>({
       resolver.clearCache();
     };
 
-    client.onReconnect(reconnectHandler);
-    client.onDisconnect(disconnectHandler);
+    client.on("reconnect", reconnectHandler);
+    client.on("disconnect", disconnectHandler);
   };
 
   const createReconnectHandler = (): (() => Promise<void>) => async () => {
