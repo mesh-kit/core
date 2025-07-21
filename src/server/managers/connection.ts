@@ -133,58 +133,55 @@ export class ConnectionManager {
   /**
    * Retrieves metadata for all available connections by fetching all connection IDs,
    * obtaining their associated metadata, and parsing the metadata as JSON.
-   * Optionally filters the results based on the provided filter function.
    *
-   * @param {Function} filterFn - Optional filter function that takes a connection ID and metadata,
-   *                             and returns a boolean indicating whether to include the connection.
-   * @returns {Promise<Array<{ [connectionId: string]: any }>>}
-   *   A promise that resolves to an array of objects, each mapping a connection ID to its parsed metadata object, or `null` if no metadata is available.
+   * @returns {Promise<Array<{ id: string, metadata: any }>>}
+   *   A promise that resolves to an array of connection objects with id and metadata properties.
    * @throws {Error} If an error occurs while fetching connection IDs, retrieving metadata, or parsing JSON.
    */
-  async getAllMetadata(filterFn?: (connectionId: string, metadata: any) => boolean): Promise<Array<{ [connectionId: string]: any }>> {
+  async getAllMetadata(): Promise<Array<{ id: string; metadata: any }>> {
     const connectionIds = await this.getAllConnectionIds();
     const metadata = await this.getInstanceIdsForConnections(connectionIds);
+    const result: Array<{ id: string; metadata: any }> = [];
 
-    return connectionIds
-      .map((id) => {
-        try {
-          const parsedMetadata = metadata[id] ? JSON.parse(metadata[id]) : null;
-          return { [id]: parsedMetadata };
-        } catch {
-          return null;
-        }
-      })
-      .filter((item): item is { [connectionId: string]: any } => {
-        if (item === null) return false;
+    connectionIds.forEach((id) => {
+      try {
+        const parsedMetadata = metadata[id] ? JSON.parse(metadata[id]) : null;
+        result.push({ id, metadata: parsedMetadata });
+      } catch (e) {
+        console.error(`Failed to parse metadata for connection ${id}:`, e);
+        result.push({ id, metadata: null });
+      }
+    });
 
-        if (filterFn) {
-          const id = Object.keys(item)[0];
-          if (id === undefined) return false;
-
-          const metadata = item[id];
-          return metadata !== null && filterFn(id, metadata);
-        }
-
-        return true;
-      });
+    return result;
   }
 
   /**
    * Retrieves all metadata objects for each connection in the specified room.
-   * Each returned object maps a connection ID to its associated metadata, which is parsed from JSON.
-   * If no metadata is found for a connection, the value is set to null.
+   * Returns an array of connection objects with id and metadata properties.
+   * If no metadata is found for a connection, the metadata value is set to null.
    *
    * @param {string} roomName - The name of the room for which to retrieve connection metadata.
-   * @returns {Promise<Array<{ [connectionId: string]: any }>>} A promise that resolves to an array of objects,
-   * each containing a connection ID as the key and its metadata as the value (or null if not available).
+   * @returns {Promise<Array<{ id: string, metadata: any }>>} A promise that resolves to an array of
+   * connection objects with id and metadata properties (metadata is null if not available).
    * @throws {Error} If there is an error retrieving connection IDs or metadata, the promise will be rejected with the error.
    */
-  async getAllMetadataForRoom(roomName: string): Promise<Array<{ [connectionId: string]: any }>> {
+  async getAllMetadataForRoom(roomName: string): Promise<Array<{ id: string; metadata: any }>> {
     const connectionIds = await this.roomManager.getRoomConnectionIds(roomName);
     const metadata = await this.getInstanceIdsForConnections(connectionIds);
-    return connectionIds.map((id) => ({
-      [id]: metadata[id] ? JSON.parse(metadata[id]) : null,
-    }));
+    const result: Array<{ id: string; metadata: any }> = [];
+
+    connectionIds.forEach((id) => {
+      try {
+        const parsedMetadata = metadata[id] ? JSON.parse(metadata[id]) : null;
+        result.push({ id, metadata: parsedMetadata });
+      } catch (e) {
+        console.error(`Failed to parse metadata for connection ${id}:`, e);
+        result.push({ id, metadata: null });
+      }
+    });
+
+    return result;
   }
 
   async cleanupConnection(connection: Connection): Promise<void> {

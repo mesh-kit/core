@@ -87,10 +87,10 @@ describe("MeshServer", () => {
     expect(await server.roomManager.getMetadata("non-existent-room")).toBeNull();
 
     const allMeta = await server.roomManager.getAllMetadata();
-    expect(allMeta).toEqual({
-      [room1]: { ...initialMeta1, ...updateMeta1 },
-      [room2]: initialMeta2,
-    });
+    expect(allMeta).toEqual([
+      { id: room1, metadata: { ...initialMeta1, ...updateMeta1 } },
+      { id: room2, metadata: initialMeta2 },
+    ]);
 
     // clearRoom preserves metadata
     await server.roomManager.clearRoom(room1);
@@ -111,20 +111,21 @@ describe("MeshServer", () => {
     await server.roomManager.setMetadata(room3, { type: "public", maxUsers: 20 });
 
     // filter by type
-    const publicRooms = await server.roomManager.getAllMetadata((roomName, metadata) => metadata.type === "public");
+    const allRooms = await server.roomManager.getAllMetadata();
+    const publicRooms = allRooms.filter((room) => room.metadata.type === "public");
 
-    expect(Object.keys(publicRooms).length).toBe(2);
-    expect(publicRooms).toHaveProperty(room1);
-    expect(publicRooms).toHaveProperty(room3);
-    expect(publicRooms).not.toHaveProperty(room2);
+    expect(publicRooms.length).toBe(2);
+    expect(publicRooms.map((r) => r.id)).toContain(room1);
+    expect(publicRooms.map((r) => r.id)).toContain(room3);
+    expect(publicRooms.map((r) => r.id)).not.toContain(room2);
 
     // filter by maxUsers
-    const largeRooms = await server.roomManager.getAllMetadata((roomName, metadata) => metadata.maxUsers > 10);
+    const largeRooms = allRooms.filter((room) => room.metadata.maxUsers > 10);
 
-    expect(Object.keys(largeRooms).length).toBe(1);
-    expect(largeRooms).toHaveProperty(room3);
-    expect(largeRooms).not.toHaveProperty(room1);
-    expect(largeRooms).not.toHaveProperty(room2);
+    expect(largeRooms.length).toBe(1);
+    expect(largeRooms.map((r) => r.id)).toContain(room3);
+    expect(largeRooms.map((r) => r.id)).not.toContain(room1);
+    expect(largeRooms.map((r) => r.id)).not.toContain(room2);
   });
 
   test("getAllRooms", async () => {

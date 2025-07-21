@@ -228,20 +228,17 @@ export class RoomManager {
   /**
    * Retrieves and returns all room metadata stored in Redis.
    * Fetches all keys matching the pattern "mesh:roommeta:*", retrieves their "data" fields,
-   * parses them as JSON, and returns an object mapping room names to their metadata.
-   * Optionally filters the results based on the provided filter function.
+   * parses them as JSON, and returns an array of room objects with id and metadata.
    *
-   * @param {Function} filterFn - Optional filter function that takes a room name and metadata,
-   *                             and returns a boolean indicating whether to include the room.
-   * @returns {Promise<{ [roomName: string]: any }>} A promise that resolves to an object mapping room names to their metadata.
+   * @returns {Promise<Array<{ id: string, metadata: any }>>} A promise that resolves to an array of room objects.
    * @throws {SyntaxError} If the stored metadata cannot be parsed as JSON, an error is logged and the room is omitted from the result.
    */
-  async getAllMetadata(filterFn?: (roomName: string, metadata: any) => boolean): Promise<{ [roomName: string]: any }> {
+  async getAllMetadata(): Promise<Array<{ id: string; metadata: any }>> {
     const keys = await this.redis.keys("mesh:roommeta:*");
-    const metadata: { [roomName: string]: any } = {};
+    const result: Array<{ id: string; metadata: any }> = [];
 
     if (keys.length === 0) {
-      return metadata;
+      return result;
     }
 
     const pipeline = this.redis.pipeline();
@@ -254,15 +251,13 @@ export class RoomManager {
       if (data) {
         try {
           const parsedData = JSON.parse(data as string);
-          if (!filterFn || filterFn(roomName, parsedData)) {
-            metadata[roomName] = parsedData;
-          }
+          result.push({ id: roomName, metadata: parsedData });
         } catch (e) {
           console.error(`Failed to parse metadata for room ${roomName}:`, e);
         }
       }
     });
 
-    return metadata;
+    return result;
   }
 }

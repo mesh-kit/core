@@ -87,13 +87,16 @@ describe("MeshServer", () => {
       expect(storedMetadataB).toEqual(metadataB);
 
       const allMetadata = await server.connectionManager.getAllMetadata();
-      expect(allMetadata).toEqual([{ [connectionA.id]: metadataA }, { [connectionB.id]: metadataB }]);
+      expect(allMetadata).toEqual([
+        { id: connectionA.id, metadata: metadataA },
+        { id: connectionB.id, metadata: metadataB },
+      ]);
 
       const allMetadataFromNonExistentRoom = await server.connectionManager.getAllMetadataForRoom("non-existent-room");
       expect(allMetadataFromNonExistentRoom).toEqual([]);
     });
 
-    test("server can filter metadata using a filter function", async () => {
+    test("server can filter metadata using array methods", async () => {
       await clientA.connect();
       await clientB.connect();
       const metadataA = { name: "Client A", id: 1, role: "user" };
@@ -103,17 +106,19 @@ describe("MeshServer", () => {
       await server.connectionManager.setMetadata(connectionA, metadataA);
       await server.connectionManager.setMetadata(connectionB, metadataB);
 
+      const allMetadata = await server.connectionManager.getAllMetadata();
+
       // filter by id
-      const filteredById = await server.connectionManager.getAllMetadata((connectionId, metadata) => metadata.id > 1);
+      const filteredById = allMetadata.filter((conn) => conn.metadata.id > 1);
       expect(filteredById.length).toBe(1);
-      const filteredByIdObj = filteredById[0]!;
-      expect(filteredByIdObj[connectionB.id]).toEqual(metadataB);
+      expect(filteredById[0]!.id).toBe(connectionB.id);
+      expect(filteredById[0]!.metadata).toEqual(metadataB);
 
       // filter by role
-      const filteredByRole = await server.connectionManager.getAllMetadata((connectionId, metadata) => metadata.role === "user");
+      const filteredByRole = allMetadata.filter((conn) => conn.metadata.role === "user");
       expect(filteredByRole.length).toBe(1);
-      const filteredByRoleObj = filteredByRole[0]!;
-      expect(filteredByRoleObj[connectionA.id]).toEqual(metadataA);
+      expect(filteredByRole[0]!.id).toBe(connectionA.id);
+      expect(filteredByRole[0]!.metadata).toEqual(metadataA);
     });
 
     test("server can retrieve metadata for a room of connections", async () => {
@@ -129,10 +134,10 @@ describe("MeshServer", () => {
       await server.addToRoom("room-b", connectionB);
 
       const roomAMetadata = await server.connectionManager.getAllMetadataForRoom("room-a");
-      expect(roomAMetadata).toEqual([{ [connectionA.id]: metadataA }]);
+      expect(roomAMetadata).toEqual([{ id: connectionA.id, metadata: metadataA }]);
 
       const roomBMetadata = await server.connectionManager.getAllMetadataForRoom("room-b");
-      expect(roomBMetadata).toEqual([{ [connectionB.id]: metadataB }]);
+      expect(roomBMetadata).toEqual([{ id: connectionB.id, metadata: metadataB }]);
     });
 
     test("onConnection callback is executed when a client connects", async () => {
