@@ -1037,10 +1037,6 @@ export class MeshServer extends WebSocketServer {
     return this;
   }
 
-  async dispose() {
-    await this.instanceManager.cleanupDeadInstance(this.instanceId);
-  }
-
   /**
    * Registers a callback function to be executed when a record is updated.
    *
