@@ -177,6 +177,7 @@ export class CollectionManager {
    * @param {Object} [options.slice] - Pagination slice.
    * @param {number} [options.slice.start] - Start index.
    * @param {number} [options.slice.count] - Number of records to return.
+   * @param {number} [options.scanCount] - Redis SCAN batch size hint. Defaults to 100.
    * @returns {Promise<any[]>} The processed records to send to clients.
    */
   async listRecordsMatching(
@@ -185,11 +186,18 @@ export class CollectionManager {
       map?: (record: any) => any;
       sort?: (a: any, b: any) => number;
       slice?: { start: number; count: number };
+      scanCount?: number;
     },
   ): Promise<any[]> {
     try {
       const recordKeyPrefix = "mesh:record:";
-      const keys = await this.redis.keys(`${recordKeyPrefix}${pattern}`);
+      const keys: string[] = [];
+      let cursor = "0";
+      do {
+        const result = await this.redis.scan(cursor, "MATCH", `${recordKeyPrefix}${pattern}`, "COUNT", options?.scanCount ?? 100);
+        cursor = result[0];
+        keys.push(...result[1]);
+      } while (cursor !== "0");
 
       if (keys.length === 0) {
         return [];
